@@ -1,0 +1,37 @@
+{
+  "name": "@canton-vc/example-issuer-demo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Runnable CLI demo for the canton-vc issuer pipeline. Exercises the same KycProvider → mint flow against a mock vendor (zero-config) or any of the three production vendor sandboxes via .env.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "tsx src/main.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@canton-vc/adapter-didit": "workspace:*",
+    "@canton-vc/adapter-mock": "workspace:*",
+    "@canton-vc/adapter-persona": "workspace:*",
+    "@canton-vc/adapter-sumsub": "workspace:*",
+    "@canton-vc/core": "workspace:*",
+    "@canton-vc/credential": "workspace:*",
+    "@canton-vc/kyc-provider": "workspace:*",
+    "dotenv": "17.4.2"
+  },
+  "devDependencies": {
+    "@types/node": "22.10.2",
+    "tsx": "4.22.3",
+    "typescript": "5.6.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Farukest/canton-vc.git",
+    "directory": "examples/issuer-demo"
+  },
+  "author": "Abdullah Faruk Özden <abdullahfarukozden@gmail.com> (https://github.com/Farukest)",
+  "homepage": "https://github.com/Farukest/canton-vc/tree/main/examples/issuer-demo#readme"
+}

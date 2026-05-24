@@ -1,0 +1,60 @@
+{
+  "name": "@canton-vc/adapter-persona",
+  "version": "0.1.0",
+  "description": "Persona KYC provider adapter for canton-vc. Wraps Persona's JSON:API inquiry endpoints (Bearer auth, Persona-Version-pinned request envelope, JSON:API relationships) with the Persona-Signature webhook scheme (HMAC-SHA256 over `<ts>.<rawBody>` with key rotation support) behind the vendor-agnostic KycProvider interface. Third production reference adapter alongside @canton-vc/adapter-didit and @canton-vc/adapter-sumsub; covers the JSON:API + async-inquiry pattern as a third structurally distinct vendor shape.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "lint": "biome check src tests",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf .turbo dist"
+  },
+  "dependencies": {
+    "@canton-vc/core": "workspace:*",
+    "@canton-vc/kyc-provider": "workspace:*",
+    "zod": "4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "22.10.2",
+    "typescript": "5.6.3",
+    "vitest": "2.1.8"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Farukest/canton-vc.git",
+    "directory": "packages/adapter-persona"
+  },
+  "keywords": [
+    "canton",
+    "kyc",
+    "persona",
+    "withpersona",
+    "adapter",
+    "canton-vc"
+  ],
+  "author": "Abdullah Faruk Özden <abdullahfarukozden@gmail.com> (https://github.com/Farukest)",
+  "homepage": "https://github.com/Farukest/canton-vc/tree/main/packages/adapter-persona#readme",
+  "bugs": {
+    "url": "https://github.com/Farukest/canton-vc/issues"
+  }
+}

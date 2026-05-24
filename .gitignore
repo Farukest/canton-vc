@@ -1,0 +1,23 @@
+node_modules/
+dist/
+build/
+.next/
+.turbo/
+coverage/
+*.log
+.DS_Store
+.env
+.env.local
+.env.*.local
+.vscode/
+.idea/
+*.tsbuildinfo
+.pnpm-store/
+*.dar
+!packages/**/fixtures/**/*.dar
+!daml/**/release/*.dar
+
+# DAML build artifacts
+.daml/
+**/.daml/
+

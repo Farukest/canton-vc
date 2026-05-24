@@ -1,0 +1,48 @@
+{
+  "name": "@canton-vc/example-verifier-demo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Runnable Vite + React SPA for the canton-vc verifier surface. Exercises issue → verifyDisclosure() → NFT cascade against a mock vendor and an in-memory Canton mock — zero credentials, zero participant.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n vendor,vite -c yellow,cyan \"tsx vendor-server.ts\" \"vite\"",
+    "dev:vite": "vite",
+    "dev:vendor": "tsx vendor-server.ts",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@canton-vc/adapter-didit": "workspace:*",
+    "@canton-vc/adapter-mock": "workspace:*",
+    "@canton-vc/adapter-persona": "workspace:*",
+    "@canton-vc/adapter-sumsub": "workspace:*",
+    "@canton-vc/core": "workspace:*",
+    "@canton-vc/credential": "workspace:*",
+    "@canton-vc/kyc-provider": "workspace:*",
+    "dotenv": "17.4.2",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "22.10.2",
+    "@types/react": "18.3.12",
+    "@types/react-dom": "18.3.1",
+    "@vitejs/plugin-react": "4.3.4",
+    "concurrently": "9.1.2",
+    "tsx": "4.22.3",
+    "typescript": "5.6.3",
+    "vite": "5.4.14"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Farukest/canton-vc.git",
+    "directory": "examples/verifier-demo"
+  },
+  "author": "Abdullah Faruk Özden <abdullahfarukozden@gmail.com> (https://github.com/Farukest)",
+  "homepage": "https://github.com/Farukest/canton-vc/tree/main/examples/verifier-demo#readme"
+}

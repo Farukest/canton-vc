@@ -1,0 +1,54 @@
+{
+  "name": "@canton-vc/kyc-provider",
+  "version": "0.1.0",
+  "description": "Generic KycProvider interface for canton-vc — vendor-agnostic contract for KYC sessions, decisions, and webhooks. Implemented by adapter packages (@canton-vc/adapter-didit, …) so issuers can swap providers without touching the credential pipeline.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "lint": "biome check src",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "clean": "rm -rf .turbo dist"
+  },
+  "devDependencies": {
+    "@types/node": "22.10.2",
+    "typescript": "5.6.3",
+    "vitest": "2.1.8"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Farukest/canton-vc.git",
+    "directory": "packages/kyc-provider"
+  },
+  "keywords": [
+    "canton",
+    "kyc",
+    "verifiable-credentials",
+    "adapter-pattern",
+    "interface"
+  ],
+  "author": "Abdullah Faruk Özden <abdullahfarukozden@gmail.com> (https://github.com/Farukest)",
+  "homepage": "https://github.com/Farukest/canton-vc/tree/main/packages/kyc-provider#readme",
+  "bugs": {
+    "url": "https://github.com/Farukest/canton-vc/issues"
+  }
+}

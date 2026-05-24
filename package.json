@@ -1,0 +1,42 @@
+{
+  "name": "canton-vc",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Canton Verifiable Credentials — open-source reference implementation for KYC + identity credentials on the Canton Network. Apache 2.0.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "lint": "biome check packages",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "build": "pnpm -r build",
+    "clean": "pnpm -r clean && rm -rf node_modules"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.4.13",
+    "@types/node": "22.10.2",
+    "dotenv": "^17.4.2",
+    "tsx": "^4.22.3",
+    "typescript": "5.6.3",
+    "vitest": "2.1.8"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Farukest/canton-vc"
+  },
+  "author": "Abdullah Faruk Özden <abdullahfarukozden@gmail.com> (https://github.com/Farukest)",
+  "keywords": [
+    "canton",
+    "canton-network",
+    "daml",
+    "kyc",
+    "verifiable-credentials",
+    "identity",
+    "trustless-verification",
+    "selective-disclosure"
+  ]
+}

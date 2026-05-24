@@ -1,0 +1,1 @@
+{"id":"37ab981a4e069457011fee7b4100cf5547697478daaf31a0a40ed3f418e5b26f","spec":{"canonicalForm":"jcs-sortKeys+shortenFloats/sha256/v1","fieldsInOrder":["vendor","schemaVersion","applicantId","externalUserId","reviewStatus","reviewAnswer","appliedLevel","identityVerified","livenessVerified","addressVerified"],"schemaVersion":"v1","vendor":"sumsub"}}
