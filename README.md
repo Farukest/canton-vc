@@ -2,7 +2,7 @@
 
 > Open-source reference implementation for **verifiable credentials on the Canton Network**.
 >
-> Apache 2.0 · TypeScript-first · DAML-native · Canton 3.4+
+> Apache 2.0 · TypeScript-first · DAML-native · Canton 3.4
 
 [![npm @canton-vc/core](https://img.shields.io/npm/v/@canton-vc/core?label=%40canton-vc%2Fcore&color=cb3837)](https://www.npmjs.com/package/@canton-vc/core)
 [![npm @canton-vc/credential](https://img.shields.io/npm/v/@canton-vc/credential?label=%40canton-vc%2Fcredential&color=cb3837)](https://www.npmjs.com/package/@canton-vc/credential)

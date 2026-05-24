@@ -159,9 +159,9 @@ Deliverables:
 - External security audit by Cure53, scope reviewed with the Tech & Ops security subcommittee before kickoff.
 - Audit scope: `@canton-vc/core` (Canton JSON Ledger v2 client), the DAML templates (`canton-vc-credential` package — `Credential` + `KycNFT` + `Verify` choice), and `verifyDisclosure()` in `@canton-vc/credential` (DAML + TypeScript boundary).
 - Audit report published alongside the Milestone 2 release with all critical and high findings remediated.
-- DAR rebuilds for Canton 3.4, 3.5, and 3.6.
+- DAR rebuilds verified against the latest stable Canton release (currently 3.4) and the next stable Canton release if it lands during the milestone window (3.5 is in release-candidate as of submission).
 
-**Acceptance criteria:** Cure53 audit report public with no unresolved critical or high findings. DAR builds available on Canton 3.4 / 3.5 / 3.6.
+**Acceptance criteria:** Cure53 audit report public with no unresolved critical or high findings. DAR builds verified on Canton 3.4, plus any later stable Canton release published during the milestone window.
 
 ### Milestone 3: Python SDK port + multi-language roadmap
 
