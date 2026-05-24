@@ -148,15 +148,17 @@ const decision = await kyc.fetchDecision(session.sessionId);
 
 // 3. Mint the on-chain credential
 if (decision.status === 'approved') {
-  const { contractId } = await canton.createKycCredential({
+  const userParty = await canton.allocateParty(`user_${decision.userRef}`);
+  const { contractId } = await canton.createCredential({
+    userParty,
     userRef: decision.userRef,
     proofHash: decision.proofHash,
     proofSchemaId: decision.proofSchemaId,
-    level: decision.level,
-    validUntil: decision.expiresAt,
-    network: canton.config.networkLabel,
-    humanScore: decision.evidence.humanScore,
-    validator: kyc.vendorName, // 'Didit' | 'Sumsub' | 'Persona' — stamped onto the credential
+    status: 'active',
+    level: decision.level ?? 'basic',
+    validUntil: decision.expiresAt.replace(/\.\d+Z$/, 'Z'), // YYYY-MM-DDTHH:MM:SSZ
+    humanScore: decision.evidence.humanScore ?? 0,
+    validator: 'didit', // canonical enum value — mirrors `ValidatorType` in Canton.VC.Credential
     identityVerified: decision.evidence.identityVerified ?? false,
     livenessVerified: decision.evidence.livenessVerified ?? false,
     addressVerified: decision.evidence.addressVerified ?? false,
