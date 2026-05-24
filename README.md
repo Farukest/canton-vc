@@ -4,6 +4,9 @@
 >
 > Apache 2.0 · TypeScript-first · DAML-native · Canton 3.4+
 
+[![npm @canton-vc/core](https://img.shields.io/npm/v/@canton-vc/core?label=%40canton-vc%2Fcore&color=cb3837)](https://www.npmjs.com/package/@canton-vc/core)
+[![npm @canton-vc/credential](https://img.shields.io/npm/v/@canton-vc/credential?label=%40canton-vc%2Fcredential&color=cb3837)](https://www.npmjs.com/package/@canton-vc/credential)
+[![CI](https://img.shields.io/github/actions/workflow/status/Farukest/canton-vc/ci.yml?branch=main&label=CI)](https://github.com/Farukest/canton-vc/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![CIP draft](https://img.shields.io/badge/CIP-draft-orange)](docs/cip-draft-canton-vc-standard.md)
 
@@ -19,16 +22,16 @@ issuer, no ZK overlay, no extra audit surface.
 
 ## What's in the box
 
-| Package | Purpose |
-|---|---|
-| [`@canton-vc/core`](packages/core) | Canton JSON Ledger v2 client — config, command builders (mint / verify / revoke), party parsing, Zod schemas, retry-aware fetch, content-addressed proof-schema infrastructure. No business logic. |
-| [`@canton-vc/credential`](packages/credential) | High-level OAuth 2.0 + OIDC client for issuer integration, plus `verifyDisclosure()` — the one-line trustless verification helper for firms. |
-| [`@canton-vc/kyc-provider`](packages/kyc-provider) | Generic `KycProvider` interface decoupling the issuer from any specific KYC vendor. |
-| [`@canton-vc/adapter-didit`](packages/adapter-didit) | Production adapter wrapping [Didit][didit] (v3 sessions API + HMAC-SHA256 webhooks). |
-| [`@canton-vc/adapter-sumsub`](packages/adapter-sumsub) | Production adapter wrapping [Sumsub][sumsub] (applicants API + per-request HMAC signing + multi-algorithm webhook digest). |
-| [`@canton-vc/adapter-persona`](packages/adapter-persona) | Production adapter wrapping [Persona][persona] (JSON:API inquiry endpoints + Bearer auth + signed-timestamp `Persona-Signature` webhooks with key rotation). |
-| [`@canton-vc/adapter-mock`](packages/adapter-mock) | Deterministic adapter for tests and local dev — no network calls. |
-| [`daml/canton-vc-credential`](daml/canton-vc-credential) | DAML templates (`Canton.VC.Credential` + `Canton.VC.KycNFT`) with cascade-archive on revoke. |
+| Package | Version | Purpose |
+|---|---|---|
+| [`@canton-vc/core`](packages/core) | [![npm](https://img.shields.io/npm/v/@canton-vc/core?color=cb3837&label=)](https://www.npmjs.com/package/@canton-vc/core) | Canton JSON Ledger v2 client — config, command builders (mint / verify / revoke), party parsing, Zod schemas, retry-aware fetch, content-addressed proof-schema infrastructure. No business logic. |
+| [`@canton-vc/credential`](packages/credential) | [![npm](https://img.shields.io/npm/v/@canton-vc/credential?color=cb3837&label=)](https://www.npmjs.com/package/@canton-vc/credential) | High-level OAuth 2.0 + OIDC client for issuer integration, plus `verifyDisclosure()` — the one-line trustless verification helper for firms. |
+| [`@canton-vc/kyc-provider`](packages/kyc-provider) | [![npm](https://img.shields.io/npm/v/@canton-vc/kyc-provider?color=cb3837&label=)](https://www.npmjs.com/package/@canton-vc/kyc-provider) | Generic `KycProvider` interface decoupling the issuer from any specific KYC vendor. |
+| [`@canton-vc/adapter-didit`](packages/adapter-didit) | [![npm](https://img.shields.io/npm/v/@canton-vc/adapter-didit?color=cb3837&label=)](https://www.npmjs.com/package/@canton-vc/adapter-didit) | Production adapter wrapping [Didit][didit] (v3 sessions API + HMAC-SHA256 webhooks). |
+| [`@canton-vc/adapter-sumsub`](packages/adapter-sumsub) | [![npm](https://img.shields.io/npm/v/@canton-vc/adapter-sumsub?color=cb3837&label=)](https://www.npmjs.com/package/@canton-vc/adapter-sumsub) | Production adapter wrapping [Sumsub][sumsub] (applicants API + per-request HMAC signing + multi-algorithm webhook digest). |
+| [`@canton-vc/adapter-persona`](packages/adapter-persona) | [![npm](https://img.shields.io/npm/v/@canton-vc/adapter-persona?color=cb3837&label=)](https://www.npmjs.com/package/@canton-vc/adapter-persona) | Production adapter wrapping [Persona][persona] (JSON:API inquiry endpoints + Bearer auth + signed-timestamp `Persona-Signature` webhooks with key rotation). |
+| [`@canton-vc/adapter-mock`](packages/adapter-mock) | [![npm](https://img.shields.io/npm/v/@canton-vc/adapter-mock?color=cb3837&label=)](https://www.npmjs.com/package/@canton-vc/adapter-mock) | Deterministic adapter for tests and local dev — no network calls. |
+| [`daml/canton-vc-credential`](daml/canton-vc-credential) | DAR v1.1.0 | DAML templates (`Canton.VC.Credential` + `Canton.VC.KycNFT`) with cascade-archive on revoke. |
 
 The Didit, Sumsub, and Persona adapters sit at three structurally distinct corners of the KYC-vendor design space: auth scheme (static API key vs per-request HMAC vs Bearer + version pin), identity model (sessions vs applicants vs inquiries), workflow vocabulary (workflow ids vs level names vs template ids), and webhook signature format (canonical-JSON HMAC vs multi-algorithm digest vs signed-timestamp HMAC with key rotation). All three fit behind the same `KycProvider` interface without changes to the issuer pipeline, so the interface is vendor-agnostic in practice, not just in design.
 
@@ -41,6 +44,10 @@ The Didit, Sumsub, and Persona adapters sit at three structurally distinct corne
 ## Quick start — verifier (firm consuming credentials)
 
 ```bash
+npm install @canton-vc/core @canton-vc/credential
+# or
+yarn add @canton-vc/core @canton-vc/credential
+# or
 pnpm add @canton-vc/core @canton-vc/credential
 ```
 
@@ -84,13 +91,14 @@ same regardless of which you import.
 
 ```bash
 # With Didit
-pnpm add @canton-vc/core @canton-vc/kyc-provider @canton-vc/adapter-didit
+npm install @canton-vc/core @canton-vc/kyc-provider @canton-vc/adapter-didit
+# (yarn add … / pnpm add … work identically)
 
 # Or with Sumsub
-pnpm add @canton-vc/core @canton-vc/kyc-provider @canton-vc/adapter-sumsub
+npm install @canton-vc/core @canton-vc/kyc-provider @canton-vc/adapter-sumsub
 
 # Or with Persona
-pnpm add @canton-vc/core @canton-vc/kyc-provider @canton-vc/adapter-persona
+npm install @canton-vc/core @canton-vc/kyc-provider @canton-vc/adapter-persona
 ```
 
 ```ts
