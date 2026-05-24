@@ -41,6 +41,15 @@ The Didit, Sumsub, and Persona adapters sit at three structurally distinct corne
 
 ---
 
+## Prerequisites
+
+- **Node.js 20+** for the TypeScript SDK and the runnable examples under [`examples/`](./examples).
+- **A Canton 3.4 participant** with the `canton-vc-credential` DAR uploaded — required for any real on-chain mint or verify. Not needed for the mock paths described under [Try it](#try-it) below.
+- **A KYC vendor sandbox account** (Didit, Sumsub, or Persona) — optional, only needed to drive the issuer pipeline against a real vendor.
+- **DAML 3.4 SDK** — optional, only needed to rebuild the DAR yourself. The pre-built DAR ships at [`daml/canton-vc-credential/release/canton-vc-credential-1.1.0.dar`](./daml/canton-vc-credential/release/canton-vc-credential-1.1.0.dar).
+
+---
+
 ## Quick start — verifier (firm consuming credentials)
 
 ```bash
@@ -162,6 +171,40 @@ Jumio, …)? Implement the `KycProvider` interface from
 `packages/adapter-sumsub/src/adapter.ts`, and
 `packages/adapter-persona/src/adapter.ts` are reference
 implementations covering the three most common wire shapes.
+
+---
+
+## Try it
+
+Two runnable examples under [`examples/`](./examples):
+
+- **[`examples/issuer-demo`](./examples/issuer-demo)** — Node CLI exercising the issuer pipeline (`startSession` → `fetchDecision` → `createCredential`) against the mock vendor by default, or any of Didit / Sumsub / Persona sandbox via `.env`. In-memory Canton mock; no participant needed.
+
+  ```bash
+  pnpm --filter @canton-vc/example-issuer-demo start
+  ```
+
+- **[`examples/verifier-demo`](./examples/verifier-demo)** — Vite + React SPA exercising `verifyDisclosure()` end-to-end with three panels (issue, verify, `KycNFT` cascade-revoke). Mock-only by default; optional real-vendor proxy mode via `.env`.
+
+  ```bash
+  pnpm --filter @canton-vc/example-verifier-demo dev
+  ```
+
+For a full real-Canton round-trip (real participant, real DAR, real sequencer signature), live scripts under [`scripts/`](./scripts) drive the chain end-to-end. Canonical entry point: [`scripts/live-didit-canton-manual-e2e.ts`](./scripts/live-didit-canton-manual-e2e.ts) (and equivalents for Sumsub + Persona + vendor-free).
+
+---
+
+## Architecture
+
+`canton-vc` builds on Canton's stakeholder model. A `Canton.VC.Credential` contract has the **issuer (operator)** as `signatory` and the **holder (user)** as `observer` — visible only to those two parties by default.
+
+Third-party verification uses the `DisclosedContract` primitive: the issuer ships the contract's `createdEventBlob` (and the contract id) to the verifying firm, typically as the `canton_vc_credential_blob` + `canton_vc_contract_id` claims on the OAuth userinfo response. The verifier's own participant re-derives the contract id from the blob and checks the sequencer signature; a tampered or fabricated blob is rejected with `DISCLOSED_CONTRACT_AUTHENTICATION_FAILED` before the choice body runs.
+
+The `Verify` choice (nonconsuming, controller `fetcher : Party`) returns a `CredentialView` struct computed server-side from on-chain state. `isActive` is evaluated against chain time, so the verifying firm does not have to compare `validUntil` to its own clock or trust the issuer's sidecar JSON.
+
+Optional `KycNFT` companions bind to Enhanced-level credentials by contract id; the `Revoke` choice cascade-archives the bound NFT in the same Canton transaction as the credential.
+
+This makes canton-vc a Canton-native alternative to ZK selective-disclosure for the issuer-verifier-user triple — Canton's native privacy primitives (stakeholder model + sequencer-signed disclosure) carry the trust load without a ZK circuit toolchain or on-chain proof check.
 
 ---
 
