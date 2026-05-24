@@ -84,5 +84,11 @@ export function verifySumsubWebhookDigest(
   const nodeAlg = SUMSUB_WEBHOOK_ALGS[alg];
   const expected = createHmac(nodeAlg, webhookSecret).update(rawBody).digest('hex');
   if (expected.length !== providedHex.length) return false;
+  // Reject anything that isn't a valid hex digest before handing it to
+  // `Buffer.from(..., 'hex')` — non-hex characters silently truncate the
+  // buffer and would otherwise make `timingSafeEqual` throw a RangeError
+  // instead of returning a clean false. We already checked the length
+  // matches the expected digest length above.
+  if (!/^[0-9a-f]+$/i.test(providedHex)) return false;
   return timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(providedHex, 'hex'));
 }

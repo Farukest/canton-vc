@@ -21,7 +21,7 @@ import { createHmac } from 'node:crypto';
 import { canonicalJson } from '@canton-vc/core';
 import { describe, expect, it } from 'vitest';
 
-import { DiditAdapter } from '../src/adapter';
+import { DiditAdapter, type DiditAdapterConfig } from '../src/adapter';
 import { DiditAdapterError, isDiditAdapterError } from '../src/errors';
 
 /* ---------- Fetch stub helpers ---------- */
@@ -417,11 +417,11 @@ describe('DiditAdapter.verifyWebhook', () => {
   const NOW_SEC = 1_700_000_000;
   const NOW_MS = NOW_SEC * 1000;
 
-  function makeAdapter(overrides: Partial<Parameters<typeof DiditAdapter['prototype']['startSession']>[0]> = {}) {
-    void overrides;
+  function makeAdapter(overrides: Partial<DiditAdapterConfig> = {}) {
     return new DiditAdapter({
       ...BASE_CONFIG,
       clock: () => NOW_MS,
+      ...overrides,
     });
   }
 
@@ -438,7 +438,17 @@ describe('DiditAdapter.verifyWebhook', () => {
     const raw = JSON.stringify(body);
     const sig = signWebhook(SECRET, body);
 
-    const adapter = makeAdapter();
+    // Terminal status webhooks trigger an auto-enrich GET to
+    // /v3/session/{id}/decision/ so the returned KycDecision carries the
+    // full evidence + level + proofHash. Stub the fetch with the standard
+    // APPROVED_DECISION fixture (vendor_data must match `user-9` so the
+    // userRef projection from the enriched response stays consistent
+    // with the webhook event).
+    const { fetch } = makeFetchStub(() =>
+      jsonResponse(200, { ...APPROVED_DECISION, session_id: 'sess_xyz', vendor_data: 'user-9' }),
+    );
+
+    const adapter = makeAdapter({ fetch });
     const event = await adapter.verifyWebhook(raw, {
       'x-signature-v2': sig,
       'x-timestamp': String(NOW_SEC),

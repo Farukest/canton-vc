@@ -123,20 +123,16 @@ function readJson(req: IncomingMessage): Promise<unknown> {
   });
 }
 
+// No CORS headers are emitted. The SPA reaches this server through the
+// Vite dev proxy (`server.proxy['/api/vendor']` in vite.config.ts), so
+// browser requests are same-origin from the page's perspective and never
+// trigger a CORS preflight. Direct cross-origin requests from a different
+// page are blocked by the browser's default same-origin policy — which is
+// exactly what we want, given the server holds real vendor credentials.
 function writeJson(res: ServerResponse, status: number, body: unknown): void {
   res.statusCode = status;
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   res.end(JSON.stringify(body));
-}
-
-function writeCorsPreflight(res: ServerResponse): void {
-  res.statusCode = 204;
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  res.end();
 }
 
 async function handleStartSession(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -178,10 +174,6 @@ async function handleFetchDecision(req: IncomingMessage, res: ServerResponse): P
 }
 
 const server = createServer((req, res) => {
-  if (req.method === 'OPTIONS') {
-    writeCorsPreflight(res);
-    return;
-  }
   if (req.method !== 'POST') {
     writeJson(res, 405, { error: 'method not allowed' });
     return;
