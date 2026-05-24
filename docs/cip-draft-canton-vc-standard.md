@@ -64,34 +64,79 @@ the `Canton.VC` module namespace:
 ```daml
 module Canton.VC.Credential where
 
-import DA.Time
+-- The KYC vendor (or attestor type) that produced the off-chain
+-- proof anchored by `proofHash`. `Generic` exists so issuers
+-- running a vendor without a canonical enum entry can still mint
+-- without forcing the schema. New entries are non-breaking under
+-- DAML LF 2.x upgrade rules (data constructors appended at end).
+data ValidatorType
+  = DiditValidator
+  | OnfidoValidator
+  | PersonaValidator
+  | SumsubValidator
+  | VeriffValidator
+  | Au10tixValidator
+  | JumioValidator
+  | ZkValidator
+  | Generic
+  deriving (Eq, Show)
 
 template Credential
   with
-    operator     : Party
-    user         : Party
-    userRef      : Text       -- opaque, no PII
-    proofHash    : Text       -- SHA-256 hex (lowercase) of audit artifact
-    status       : Text       -- "Active" | "Suspended" | "Revoked"
-    level        : Text       -- "Basic" | "Enhanced"
-    validUntil   : Time       -- credential expiry
-    network      : Text       -- "Canton Mainnet" | "Canton Devnet" | …
-    humanScore   : Decimal    -- 0..100, vendor-attested
-    validator    : Text       -- KYC vendor brand (e.g. "Didit")
-    identityVerified  : Bool
-    livenessVerified  : Bool
-    addressVerified   : Bool
+    operator         : Party
+    user             : Party
+    userRef          : Text                -- opaque, no PII
+    proofHash        : Text                -- SHA-256 hex of audit artifact
+    status           : Text                -- "Active" | "Revoked" | "Expired"
+    level            : Text                -- "Basic" | "Enhanced"
+    validUntil       : Time
+    network          : Text                -- "Canton Mainnet" | "Canton Devnet" | …
+    humanScore       : Int                 -- 0..100, vendor-attested
+    validator        : ValidatorType       -- canonical enum, see above
+    identityVerified : Bool
+    livenessVerified : Bool
+    addressVerified  : Bool
+    -- v1.1.0 addition. Appended at the END of the template fields
+    -- (DAML smart-contract upgrade rule: new fields MUST come last).
+    -- Optional so v1.0.0 contracts remain upgrade-compatible; the
+    -- ensure clause below requires Some <non-empty> on every NEW
+    -- mint under v1.1.0+. Legacy v1.0.0 contracts (where
+    -- proofSchemaId is None) keep their existing Verify semantics
+    -- but verifiers SHOULD treat them as audit-incomplete.
+    proofSchemaId    : Optional Text
   where
     signatory operator
     observer user
 
+    -- Mint-time invariants enforced on chain. `proofHash` AND
+    -- `proofSchemaId` are both required on every NEW mint under
+    -- v1.1.0+: the hash alone is not auditable without the schema
+    -- it was computed against.
+    ensure
+      (status == "Active" || status == "Revoked" || status == "Expired")
+        && (level == "Basic" || level == "Enhanced")
+        && humanScore >= 0
+        && humanScore <= 100
+        && userRef /= ""
+        && proofHash /= ""
+        && (case proofSchemaId of
+             Some s -> s /= ""
+             None -> False)
+
+    -- Flexible-controller verify path. Any participant that has been
+    -- given the disclosed contract blob can attach it to a
+    -- `disclosed_contracts` field on its command and exercise this
+    -- choice with itself as fetcher. Canton's contract authentication
+    -- (sequencer signature + contract-id hash) is enforced before the
+    -- choice body runs, so a tampered or fabricated blob is rejected
+    -- with DISCLOSED_CONTRACT_AUTHENTICATION_FAILED. Nonconsuming so
+    -- multiple firms / multiple verifications do not archive the
+    -- credential.
     nonconsuming choice Verify : CredentialView
-      with
-        fetcher : Party
+      with fetcher : Party
       controller fetcher
       do
         now <- getTime
-        let isActive = status == "Active" && now <= validUntil
         return CredentialView with
           userRef
           proofHash
@@ -104,42 +149,114 @@ template Credential
           identityVerified
           livenessVerified
           addressVerified
-          isActive
+          isActive = status == "Active" && now <= validUntil
+          proofSchemaId
 
-    choice Revoke : ()
-      with
-        revokedBy : Party
-        reason    : Text
+    -- Operator-only revoke. Consuming. Creates a sibling contract
+    -- with status="Revoked" so the chain's update log carries the
+    -- revocation event. The optional `nftCid` cascades through
+    -- `KycNFT.BurnNft` in the same transaction when the credential
+    -- has a bound soulbound NFT. The chain-side integrity check
+    -- ensures the supplied NFT cid is actually bound to this
+    -- credential — a buggy DB write directing the cascade at an
+    -- unrelated NFT is rejected at confirmation time.
+    choice RevokeCredential : ContractId Credential
+      with nftCid : Optional (ContractId KycNFT)
       controller operator
       do
-        -- cascade-archive any KycNFT bound to this credential
-        ...
+        case nftCid of
+          None -> return ()
+          Some cid -> do
+            nft <- fetch cid
+            assertMsg
+              "RevokeCredential: nftCid is not bound to this credential"
+              (nft.boundCredentialId == self)
+            exercise cid BurnNft
+        create this with status = "Revoked"
+
+    -- Non-archiving validator update. Lets the issuer migrate a
+    -- credential to a different validator type (e.g. adding ZK
+    -- proofs, or moving between KYC vendors) without re-running the
+    -- off-chain KYC pipeline or forcing the holder to re-onboard.
+    choice MigrateValidator : ContractId Credential
+      with newValidator : ValidatorType
+      controller operator
+      do
+        create this with validator = newValidator
 
 data CredentialView = CredentialView with
-  userRef           : Text
-  proofHash         : Text
-  status            : Text
-  level             : Text
-  validUntil        : Time
-  network           : Text
-  humanScore        : Decimal
-  validator         : Text
-  identityVerified  : Bool
-  livenessVerified  : Bool
-  addressVerified   : Bool
-  isActive          : Bool
+    userRef          : Text
+    proofHash        : Text
+    status           : Text
+    level            : Text
+    validUntil       : Time
+    network          : Text
+    humanScore       : Int
+    validator        : ValidatorType
+    identityVerified : Bool
+    livenessVerified : Bool
+    addressVerified  : Bool
+    isActive         : Bool
+    -- v1.1.0 addition. Appended at end to preserve upgrade-compat.
+    proofSchemaId    : Optional Text
   deriving (Eq, Show)
+
+template KycNFT
+  with
+    operator          : Party
+    customer          : Party
+    boundCredentialId : ContractId Credential
+    issuedAt          : Time
+    level             : Text
+    serialNumber      : Text
+    displayName       : Text
+    image             : Text
+  where
+    signatory operator
+    observer customer
+
+    -- Soulbound — no Transfer / Reassign / ChangeOwner choice.
+    -- `customer` is observer only; no choice has the customer as
+    -- controller. `image` is expected to carry an inline data URI
+    -- (`data:image/svg+xml;base64,…`) so the NFT is fully on-chain.
+    ensure
+      level == "Enhanced"
+        && serialNumber /= ""
+        && displayName /= ""
+        && image /= ""
+
+    -- Operator-only burn. Triggered by `RevokeCredential` cascade
+    -- (atomic same-tx) or by direct admin-driven archive.
+    choice BurnNft : ()
+      controller operator
+      do return ()
 ```
 
 Issuers MAY add additional optional fields under their own namespace
 (e.g. `Canton.VC.Credential.MyExtension`) but MUST NOT alter the
-above signatures. The `Verify` choice signature is the
-interoperability point; verifier-side code depends on it.
+above signatures. The `Verify` choice signature and the
+`CredentialView` record shape are the interoperability points;
+verifier-side code depends on both.
 
-The companion `Canton.VC.KycNFT` template (optional) is a soulbound
-NFT bound to a `Credential` via `boundCredentialId`. The `Revoke`
-choice on the `Credential` cascade-archives any bound NFTs in the
-same transaction.
+`ValidatorType` is the canonical on-chain enum for vendor identity;
+adding a new vendor constructor at the end of the enum is a
+non-breaking change under DAML LF 2.x upgrade rules. Issuers running
+a vendor without a canonical enum entry mint under `Generic` until
+the standard adopts the new constructor.
+
+`proofSchemaId` was added in v1.1.0 of the reference DAR. New mints
+under v1.1.0+ MUST carry a non-empty `proofSchemaId`; the on-chain
+`ensure` clause rejects mints that omit it. Legacy v1.0.0 contracts
+(where `proofSchemaId` is `None`) continue to verify under their
+original `Verify` semantics, but verifiers SHOULD treat them as
+audit-incomplete because the on-chain hash cannot be reproduced
+without the schema it was computed against.
+
+The `Canton.VC.KycNFT` template (optional companion) is a soulbound
+NFT bound to an Enhanced-level `Credential` via `boundCredentialId`.
+The `RevokeCredential` choice on the `Credential` cascade-archives
+the bound NFT in the same transaction when its contract id is
+supplied as the `nftCid` argument.
 
 ### 2. OAuth 2.0 / OIDC scope strings
 
@@ -354,9 +471,10 @@ https://github.com/Farukest/canton-vc, Apache 2.0 licensed.
 ## Open issues
 
 - **NFT cascade semantics.** The reference implementation's
-  `Revoke` choice cascade-archives bound `KycNFT` contracts in the
-  same transaction. Should the standard mandate this, leave it
-  optional, or split NFT semantics into a separate CIP?
+  `RevokeCredential` choice cascade-archives a bound `KycNFT` in
+  the same transaction when its contract id is supplied as the
+  `nftCid` argument. Should the standard mandate this cascade,
+  leave it optional, or split NFT semantics into a separate CIP?
 - **Multi-issuer ecosystem.** When multiple issuers operate on
   Canton concurrently, what does the `validator` field convention
   look like for verifiers that want to gate on issuer identity
