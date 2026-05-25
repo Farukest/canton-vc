@@ -81,7 +81,7 @@ The window between webhook delivery and the next reconciliation pass bounds the 
 
 ### 1.5. Reference implementation
 
-The Crivacy.io production deployment runs the dual-channel verification + periodic reconciliation pattern at Canton mainnet scale. The exact worker is application-specific — it uses pg-boss for scheduling and PostgreSQL for state, which are choices outside the SDK's opinion — but the pattern itself is reproducible in any scheduler and storage layer. The `getDecision()` building block in `@canton-vc/kyc-provider` is the only SDK surface the worker needs to call.
+The Crivacy.io production deployment runs the dual-channel verification + periodic reconciliation pattern against Canton mainnet. The exact worker is application-specific — it uses pg-boss for scheduling and PostgreSQL for state, which are choices outside the SDK's opinion — but the pattern itself is reproducible in any scheduler and storage layer. The `getDecision()` building block in `@canton-vc/kyc-provider` is the only SDK surface the worker needs to call.
 
 ---
 
