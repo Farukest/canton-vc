@@ -244,7 +244,7 @@ canton-vc/
 ├── docs/
 │   ├── cip-draft-canton-vc-standard.md
 │   └── proof-schemas/              Content-addressed schema registry
-├── scripts/                        Live end-to-end scripts against DevNet
+├── scripts/                        Live end-to-end smoke scripts (DevNet) + mainnet DAR deployment
 ├── examples/
 │   ├── issuer-demo/                Runnable Node CLI (mock + 3 vendor sandboxes)
 │   └── verifier-demo/              Runnable Vite + React SPA (verifier surface)
