@@ -16,6 +16,12 @@
 
 export type { VerifyDisclosureOptions } from './canton';
 export { verifyDisclosure } from './canton';
+export {
+  MIN_PSEUDONYM_ENTROPY_BITS,
+  MIN_PSEUDONYM_LENGTH,
+  assertUserRefIsPseudonym,
+  userRefLooksLikePseudonym,
+} from './pseudonym-check';
 export { CantonVcClient } from './client';
 export type {
   CantonVcOauthErrorCode,
