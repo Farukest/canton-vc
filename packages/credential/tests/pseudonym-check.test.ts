@@ -3,9 +3,9 @@
 import type { CredentialView } from '@canton-vc/core';
 import { describe, expect, it } from 'vitest';
 import {
+  assertUserRefIsPseudonym,
   MIN_PSEUDONYM_ENTROPY_BITS,
   MIN_PSEUDONYM_LENGTH,
-  assertUserRefIsPseudonym,
   userRefLooksLikePseudonym,
 } from '../src/pseudonym-check';
 
