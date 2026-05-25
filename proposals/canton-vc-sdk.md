@@ -129,12 +129,12 @@ The OAuth claim names (`canton_vc_credential_blob`, `canton_vc_contract_id`, `ca
 
 ## Milestones and Deliverables
 
-### Milestone 1: Open-source release (retroactive)
+### Milestone 1: Open-source release — already-delivered acceptance
 
-**Hard deadline:** Funding released on grant approval.
+**Hard deadline:** Funding released on grant approval against the present-state artefacts (already in the repository at submission).
 **Funding:** 400,000 CC (~27%)
-**Engineering basis:** Approximately six months of production engineering at [Crivacy.io](https://crivacy.io) running the Canton credential pattern (estimated ~900 person-hours of retroactive work across the SDK, DAR, and integration surface), plus several focused weeks of extraction, hardening, and standardisation work to turn that internal codebase into a vendor-neutral, audit-replay-ready open-source SDK + DAR + CIP draft.
-**Person-hours:** ~900 retroactive (already-delivered) + ~10 of remaining release-polish work (npm publish, repository plumbing, tagged release commit).
+**Engineering basis:** Approximately six months of production engineering at [Crivacy.io](https://crivacy.io) running the Canton credential pattern (estimated ~900 person-hours of already-delivered engineering across the SDK, DAR, and integration surface), plus several focused weeks of extraction, hardening, and standardisation work to turn that internal codebase into a vendor-neutral, audit-replay-ready open-source SDK + DAR + CIP draft.
+**Person-hours:** ~900 already-delivered + ~10 of remaining release-polish work (npm publish, repository plumbing, tagged release commit).
 
 Deliverables, all currently in the repository at submission time:
 
@@ -146,7 +146,7 @@ Deliverables, all currently in the repository at submission time:
 - Two runnable reference apps under `examples/`: `examples/issuer-demo/` (Node CLI exercising `startSession` → `fetchDecision` → `createCredential`) and `examples/verifier-demo/` (Vite + React SPA exercising `verifyDisclosure()` end-to-end plus a `KycNFT` cascade-revoke panel). Both run in 30 seconds against a mock vendor + in-memory Canton mock with zero credentials; both also support a real KYC vendor sandbox mode (Didit / Sumsub / Persona) via `.env` — the CLI uses the adapters directly, the SPA proxies through a co-located Node-side `vendor-server.ts` so HMAC secrets and API keys stay out of the browser bundle. Smoke-verified end-to-end against the live Didit + Persona sandbox APIs during pre-submission testing.
 - CI matrix covering typecheck, lint, and vitest across Node 20 and 22 on Linux, macOS, and Windows.
 
-**Acceptance criteria:** Packages installable from npm under `@canton-vc/*`. CI green at the tagged release commit. CIP draft accessible from the repository README and submitted as a PR to `canton-foundation/cips`.
+**Acceptance criteria:** Packages installable from npm under `@canton-vc/*`. CI green at the tagged release commit. CIP draft accessible from the repository README and submitted as a PR to `canton-foundation/cips`. Plus a first Foundation-side acknowledgment within the milestone window — either a CIP PR review comment from the Tech & Ops Committee or a champion ack in the Regulatory Compliance / Identity & Metadata SIG channel.
 
 **Production reference (on-chain verifiable):** [Crivacy.io](https://crivacy.io) has been running the canton-vc credential pattern in production on Canton mainnet since November 2025. The credential-issuing DAML operator is party [`CrivacyOperator::1220a37e50a4f650bcd0554c2fca064b59c3444eebd0383dbaaa65a2cc137bedc524`](https://ccview.io/party/CrivacyOperator::1220a37e50a4f650bcd0554c2fca064b59c3444eebd0383dbaaa65a2cc137bedc524/), running on the validator [`crivacy-validator-1::1220a37e50a4f650bcd0554c2fca064b59c3444eebd0383dbaaa65a2cc137bedc524`](https://ccview.io/validators/crivacy-validator-1::1220a37e50a4f650bcd0554c2fca064b59c3444eebd0383dbaaa65a2cc137bedc524/) (same participant, two parties). The mainnet DAR currently in production is `Crivacy.KYCCredential` v0.0.2 (package id `b547586bbac9c9371b8aa4d085f163f423539470b8c0639161529467c6f000b8`, deployed 2026-04-21) — the structural predecessor of the open-sourced `Canton.VC.Credential` template; existing on-chain contracts remain verifiable against their original package id while new mints use the vendor-neutral v1.1.0 module documented in the [DAML compatibility note](https://github.com/Farukest/canton-vc/blob/main/daml/canton-vc-credential/daml/Canton/VC/Credential.daml).
 
