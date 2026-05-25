@@ -111,6 +111,22 @@ The hash input contains PII (`firstName`, `lastName`, `dateOfBirth`, `documentNu
 6. **Workflow selection is enum-typed.** `startSession({ workflow: 'identity' | 'address' })` selects between the issuer's identity-only and proof-of-address workflows. Multi-step KYC composes by the issuer chaining the two and combining the resulting evidence flags + proof hashes at mint time.
 7. **Re-mint and revocation are explicit operations.** Repeat KYC reuses the same `createCredential` and optional `revokeCredential` primitives. The DAML `Revoke` choice cascades to a bound NFT in the same transaction when the issuer passes `nftContractId`. There is no implicit "soft re-mint" — the issuer's worker explicitly decides whether to revoke first, stack a new credential alongside, or let the prior one expire on schedule.
 
+**Firm integration flow.** Two roles touch `canton-vc` at six concrete call sites, none requiring custom wire code or chain-side patches:
+
+*Issuer side* (mints credentials):
+
+1. **Start session** — `provider.startSession({ userRef, workflow: 'identity' | 'address' })` returns a vendor-hosted `redirectUrl` the issuer presents to the user.
+2. **Receive decision** — either webhook-driven (`provider.verifyWebhookSignature(rawBody, headers)` then body parse) or pull-driven (`provider.fetchDecision(sessionId)`). Both yield the same vendor-agnostic `KycDecision` (status, level, evidence flags, proofHash, proofSchemaId, expiresAt).
+3. **Mint on chain** — `canton.createCredential({ userParty, userRef, proofHash, proofSchemaId, status, level, validUntil, humanScore, validator, identityVerified, livenessVerified, addressVerified })` creates a `Canton.VC.Credential` contract with the issuer as `signatory` and the user as `observer`. Optional `canton.createKycNft(...)` mints the Enhanced-tier soulbound companion.
+4. **Expose via OAuth** — the issuer's existing OAuth/OIDC userinfo endpoint emits `canton_vc_credential_blob` (the contract's `createdEventBlob`) and `canton_vc_contract_id` when the `canton-vc` scope is granted, alongside the existing `kyc:*` claims.
+
+*Verifier side* (consumes credentials, never becomes a stakeholder):
+
+5. **Receive claims** — verifier completes the OAuth flow against the issuer and reads the `canton_vc_*` claims from the userinfo response.
+6. **Verify on own participant** — `verifyDisclosure(claims, { canton, fetcher })` from `@canton-vc/credential` attaches the blob as a `DisclosedContract`, exercises the `Verify` nonconsuming choice on the verifier's own Canton participant, and returns the full `CredentialView`. The participant re-authenticates the blob against the sequencer signature before the choice body runs; a tampered or fabricated blob is rejected with `DISCLOSED_CONTRACT_AUTHENTICATION_FAILED`. `isActive` is server-evaluated against chain time — the verifier trusts the sequencer, not the issuer.
+
+The same six call sites are exercised end-to-end by the live scripts above (`scripts/live-{didit,sumsub,persona}-canton-*.ts`) and by `examples/issuer-demo` + `examples/verifier-demo` against the mock vendor + a mock `CantonClient`. No reference-deployment branches, no Crivacy-specific code paths.
+
 ### 3. Architectural Alignment
 
 Canton's stakeholder model gives selective disclosure by default: a contract is visible only to its stakeholders. The `DisclosedContract` mechanism then lets the issuer hand a self-authenticating blob to a third party that is not a stakeholder; that party's participant re-derives the contract id from the blob, checks the sequencer signature, and runs a nonconsuming choice on the contract. A tampered or fabricated blob is rejected with `DISCLOSED_CONTRACT_AUTHENTICATION_FAILED` before the choice body executes, so the verifying firm trusts the network's cryptographic primitives rather than the issuer.
