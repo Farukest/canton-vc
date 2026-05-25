@@ -520,7 +520,13 @@ describe('DiditAdapter.verifyWebhook', () => {
     const sig = signWebhook(SECRET, body);
     const slightlyOld = NOW_SEC - 200; // 200s < 300s drift
 
-    const adapter = makeAdapter();
+    // Terminal-status webhooks trigger an auto-enrich fetchDecision()
+    // call; stub it with the APPROVED_DECISION fixture so the test does
+    // not reach the real Didit API (which would time out on macOS CI).
+    const { fetch } = makeFetchStub(() =>
+      jsonResponse(200, { ...APPROVED_DECISION, session_id: 's', vendor_data: 'u' }),
+    );
+    const adapter = makeAdapter({ fetch });
     const event = await adapter.verifyWebhook(JSON.stringify(body), {
       'x-signature-v2': sig,
       'x-timestamp': String(slightlyOld),
