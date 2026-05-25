@@ -41,6 +41,26 @@ The Didit, Sumsub, and Persona adapters sit at three structurally distinct corne
 
 ---
 
+## Who uses canton-vc
+
+Three classes of Canton participants integrate canton-vc, each at a different surface of the SDK:
+
+**Identity-provider-style firms** (Crivacy.io is the first such deployment; new entrants are open to use the same primitives) integrate the issuer-side packages: `@canton-vc/core` for the Canton wire client, `@canton-vc/kyc-provider` plus one or more `@canton-vc/adapter-*` packages for KYC-vendor coverage, and the `Canton.VC.Credential` DAML templates from the canton-vc-credential DAR. These deployments mint credentials for their end users and expose the OAuth/OIDC userinfo endpoint that downstream verifiers point at.
+
+**dApp / DeFi / NFT / lending verifiers** integrate the verifier-side primitives: the `verifyDisclosure()` helper from `@canton-vc/credential` and the OAuth client for fetching the disclosure blob from an issuer's userinfo endpoint. They accept credentials from any conforming canton-vc issuer with a single API call — no per-issuer integration code, no KYC partner contract on the verifier's side, and trustless verification anchored against the Canton sequencer's signature instead of the issuer's word.
+
+**Regulated finance institutions** running their own KYC pipelines integrate the full stack on the issuer side, typically without exposing OAuth to public verifiers — credential issuance is internal and the on-chain audit replay via content-addressed proof schemas (`docs/proof-schemas/<id>.json`) is the compliance artifact. The multi-vendor adapter design lets compliance teams swap KYC vendors (Didit, Sumsub, Persona, or any future adapter implementing `KycProvider`) as a label change on the on-chain `ValidatorType` enum rather than a re-implementation.
+
+## Why use canton-vc
+
+| You are... | Today, you... | With canton-vc, you... |
+|---|---|---|
+| **An identity provider** building on Canton | Write your own KYC-vendor adapter for each vendor, design your own DAML credential template, ship your own OAuth/OIDC claim schema, hand-roll the audit trail format | Use the standardized `KycProvider` interface (three production adapters shipped), mint into the canonical `Canton.VC.Credential` template, emit the CIP-spec OAuth claims, get audit-replay via content-addressed proof schemas — for free |
+| **A dApp adding KYC** to your users | Sign a KYC partner contract with Onfido / Sumsub / Persona, integrate their SDK into your front-end, host your own KYC pipeline, pay per verification | Accept any canton-vc issuer's credential via a single `verifyDisclosure()` call. No KYC partner contract. No KYC infrastructure. Onboarding for KYC-already-done users compresses to a few seconds. The user's PII never crosses your wire |
+| **A regulated institution** running internal KYC | Build your own audit trail on top of vendor receipts; swapping vendors means swapping the integration; the chain of custody from vendor decision to credential is verbal | Audit replay is a content-addressed schema document — a regulator can recompute the on-chain hash from your retained raw bytes. Vendor swap is a label change. Both old and new vendor credentials remain queryable forever (Canton is append-only) |
+
+---
+
 ## Prerequisites
 
 - **Node.js 20+** for the TypeScript SDK and the runnable examples under [`examples/`](./examples).
