@@ -22,7 +22,8 @@ import DA.TextMap (TextMap)
 --
 --   * `admin` is the disclosure authority. A verifier requires the
 --     admin's signature on disclosed-contract metadata to trust the
---     view. In a custodian model (e.g. Crivacy), admin == issuer.
+--     view. In a custodian model, admin == issuer; in a delegated-
+--     issuance model the two may differ.
 --
 --   * `Credential_PublicFetch` returns the view to ANY actor, but
 --     implementers MUST validate `expectedAdmin == admin` so a
@@ -31,11 +32,11 @@ import DA.TextMap (TextMap)
 --
 --   * `Credential_ArchiveAsHolder` is holder-controlled voluntary
 --     archive. Issuer-side compliance revoke is a separate non-
---     standard choice on each implementer (see Crivacy's
---     `RevokeCredential` in Canton.VC.Credential).
+--     standard choice on each implementer (see `RevokeCredential`
+--     on `Canton.VC.Credential` for the reference template).
 --
 --   * Namespace convention for claim keys / metadata keys: Java-style
---     reverse-DNS (e.g. `io.crivacy/level`). The `cip-<nr>/` prefix
+--     reverse-DNS (e.g. `com.example/level`). The `cip-<nr>/` prefix
 --     is reserved for keys defined by the standard itself.
 -- ────────────────────────────────────────────────────────────────────
 

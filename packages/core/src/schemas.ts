@@ -17,8 +17,9 @@
  *   * Credential payload moved from flat v1.1.0 fields
  *     (`operator/user/userRef/proofHash/level/...`) to the #204
  *     structural shape (`issuer/holder/admin/claims/createdAt/
- *     expiresAt/meta`). All Crivacy-specific fields live inside
- *     `claims.values` under the `io.crivacy/*` reverse-DNS namespace.
+ *     expiresAt/meta`). Application-specific fields live inside
+ *     `claims.values` under the application's chosen reverse-DNS
+ *     namespace per CIP #204 §"Namespacing".
  *   * `CredentialView` from the `Verify` choice is replaced by the
  *     `CredentialView` returned by `Credential_PublicFetch`. Shape
  *     is byte-identical to the template payload (since it's the
@@ -130,9 +131,9 @@ export type LedgerEndResponse = z.infer<typeof LedgerEndResponseSchema>;
  * On-wire shape of the Daml `Claims` record. Mirrors
  * `Cip204.Standard.Claims` 1:1.
  *
- *   * `values` — TextMap of `<namespace>/<property>` → text. Adapters
- *     read individual entries via `getCrivacyClaim` after the schema
- *     has validated the overall shape.
+ *   * `values` — TextMap of `<namespace>/<property>` → text.
+ *     Consumers read individual entries via `getClaim` after the
+ *     schema has validated the overall shape.
  *   * `validFrom` / `validUntil` — Optional Time on chain; `null` or
  *     ISO datetime on the wire.
  *   * `meta` — TextMap for non-business metadata.
