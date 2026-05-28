@@ -1,5 +1,5 @@
 /**
- * Pure command builders for the Canton V2 JSON Ledger API — v2.0.0.
+ * Pure command builders for the Canton V2 JSON Ledger API.
  *
  * These functions take a `CantonConfig` and a semantic input, and
  * return the exact JSON body we `POST` to
@@ -19,7 +19,7 @@
  *       }
  *     }
  *
- * v2.0.0 SHAPE CHANGES (CIP #204 alignment):
+ * Per CIP #204:
  *
  *   * Create: joint signatory (issuer + holder). `actAs` carries
  *     both parties — both must be hosted on the submitting
@@ -27,21 +27,58 @@
  *     require a propose-accept layer above this API.
  *
  *   * Verify: exercises `Credential_PublicFetch` on the
- *     `Canton.VC.Credential` template (which inherits the choice
- *     from the `Cip204.Standard.Credential` interface). The choice
- *     takes `expectedAdmin` + `actor` and returns the
- *     `CredentialView` view; the implementer-side assertion
- *     `expectedAdmin == admin` is enforced inside the choice body.
+ *     `Cip204.Standard.Credential` interface (the template
+ *     inherits the choice via `interface instance`). The choice
+ *     takes `expectedAdmin` + `actor` and returns `CredentialView`;
+ *     the implementer-side assertion `expectedAdmin == admin` is
+ *     enforced inside the choice body.
  *
- *   * Revoke: implementer-specific choice — preserved from v1.1.0
- *     surface area. NOT part of CIP #204.
+ *   * Archive-as-holder: exercises `Credential_ArchiveAsHolder` on
+ *     the same interface, controlled by the holder, returning
+ *     `Credential_ArchiveAsHolderResult`.
+ *
+ * Implementer extensions (NOT part of CIP #204):
+ *
+ *   * `RevokeCredential` — issuer compliance revoke on the
+ *     `Canton.VC.Credential` template, cascade-burns a bound NFT.
+ *   * `KycNFT` + `BurnNft` — companion soulbound showcase template
+ *     in the same DAML package.
  */
 
-import { createHash, randomBytes } from 'node:crypto';
+import { sha256 } from '@noble/hashes/sha2.js';
+import { bytesToHex } from '@noble/hashes/utils.js';
+
+/**
+ * Browser-safe SHA-256 hex digest of a UTF-8 string. Uses
+ * `@noble/hashes` (pure JS, audited, isomorphic) so the SDK bundles
+ * cleanly into browser SPAs (e.g. the verifier-demo) without pulling
+ * Node's `node:crypto` through a polyfill.
+ */
+function sha256HexUtf8(input: string): string {
+  return bytesToHex(sha256(new TextEncoder().encode(input)));
+}
+
+/**
+ * Browser-safe random hex bytes. Uses the Web Crypto API
+ * (`crypto.getRandomValues`) available on both Node 20+ and
+ * modern browsers; avoids depending on Node's `node:crypto.randomBytes`
+ * which is not part of the browser-bundled SDK surface.
+ */
+function randomHex(n: number): string {
+  const buf = new Uint8Array(n);
+  globalThis.crypto.getRandomValues(buf);
+  let out = '';
+  for (const byte of buf) {
+    out += byte.toString(16).padStart(2, '0');
+  }
+  return out;
+}
 
 import type { CantonConfig } from './config';
 import { CantonError } from './errors';
 import type {
+  ArchiveAsHolderInput,
+  BurnNftInput,
   Claims,
   CommandId,
   ContractId,
@@ -50,6 +87,7 @@ import type {
   Metadata,
   PartyId,
   RevokeCredentialInput,
+  UpdateCredentialsInput,
   VerifyCredentialInput,
 } from './types';
 
@@ -59,6 +97,34 @@ export const MAX_COMMAND_ID_LENGTH = 64;
 
 export const TRANSACTION_SHAPE_LEDGER_EFFECTS = 'TRANSACTION_SHAPE_LEDGER_EFFECTS' as const;
 
+/**
+ * Module-qualified name of the CIP #204 `Credential` interface as
+ * exposed by the DAML reference package. The V2 JSON Ledger API
+ * requires the interface identifier (not the template identifier)
+ * in `ExerciseCommand.templateId` when exercising an interface
+ * choice such as `Credential_PublicFetch`.
+ */
+const CIP204_INTERFACE_MODULE_AND_NAME = 'Cip204.Standard:Credential' as const;
+
+/**
+ * Derive the CIP #204 interface identifier from a template-shaped
+ * `packageName` reference. Both supported reference forms
+ * (`#name:Module:Template` and `<lf-hash>:Module:Template`) carry
+ * the package qualifier as the prefix up to and including the
+ * first `:`, so we splice the interface module + name on after
+ * that boundary.
+ */
+function deriveCip204InterfaceId(packageName: string): string {
+  const firstColon = packageName.indexOf(':');
+  if (firstColon < 0) {
+    throw new CantonError(
+      'invalid_command',
+      `packageName "${packageName}" must include at least one ':' to derive the CIP #204 interface id.`,
+    );
+  }
+  return `${packageName.slice(0, firstColon + 1)}${CIP204_INTERFACE_MODULE_AND_NAME}`;
+}
+
 /* ---------- Command id ---------- */
 
 /**
@@ -67,13 +133,13 @@ export const TRANSACTION_SHAPE_LEDGER_EFFECTS = 'TRANSACTION_SHAPE_LEDGER_EFFECT
  *     <prefix>-<purpose>-<epochMs>-<8 hex chars>
  *
  * Tests can override the random source by passing a deterministic
- * `rand` function; production uses `node:crypto.randomBytes`.
+ * `rand` function (returning hex bytes); production uses Web Crypto.
  */
 export function newCommandId(
   config: CantonConfig,
-  purpose: 'create' | 'verify' | 'revoke' | 'create-nft',
+  purpose: 'create' | 'verify' | 'revoke' | 'create-nft' | 'archive-holder' | 'burn-nft' | 'update',
   clock: () => number = Date.now,
-  rand: (n: number) => Buffer = randomBytes,
+  rand: (n: number) => string = randomHex,
 ): CommandId {
   const timestamp = clock();
   if (!Number.isFinite(timestamp) || timestamp < 0) {
@@ -82,8 +148,8 @@ export function newCommandId(
       `Invalid clock value ${String(timestamp)} when generating a command id.`,
     );
   }
-  const randomHex = rand(4).toString('hex');
-  const candidate = `${config.commandIdPrefix}-${purpose}-${timestamp}-${randomHex}`;
+  const random = rand(4);
+  const candidate = `${config.commandIdPrefix}-${purpose}-${timestamp}-${random}`;
   if (candidate.length > MAX_COMMAND_ID_LENGTH) {
     throw new CantonError(
       'invalid_command_id',
@@ -105,7 +171,7 @@ export function newCommandId(
  */
 export function deterministicCommandId(
   config: CantonConfig,
-  purpose: 'create' | 'verify' | 'revoke' | 'create-nft',
+  purpose: 'create' | 'verify' | 'revoke' | 'create-nft' | 'archive-holder' | 'burn-nft' | 'update',
   seed: string,
 ): CommandId {
   if (typeof seed !== 'string' || seed.length === 0) {
@@ -114,7 +180,7 @@ export function deterministicCommandId(
       'deterministicCommandId: seed must be a non-empty string.',
     );
   }
-  const digest = createHash('sha256').update(seed).digest('hex').slice(0, 16);
+  const digest = sha256HexUtf8(seed).slice(0, 16);
   const candidate = `${config.commandIdPrefix}-${purpose}-${digest}`;
   if (candidate.length > MAX_COMMAND_ID_LENGTH) {
     throw new CantonError(
@@ -428,7 +494,7 @@ export function buildVerifyCredentialCommand(
 
   const exerciseCommand = {
     ExerciseCommand: {
-      templateId: config.packageName,
+      templateId: deriveCip204InterfaceId(config.packageName),
       contractId,
       choice: 'Credential_PublicFetch',
       choiceArgument: { expectedAdmin, actor },
@@ -508,6 +574,54 @@ export function buildRevokeCredentialCommand(
   return buildSubmissionEnvelope(config, commandId, [issuer], [exerciseCommand], false);
 }
 
+/**
+ * Build the submission body for an `updateCredentials` call.
+ *
+ * Exercises the `UpdateCredentials` template choice (implementer
+ * extension, NOT part of CIP #204). Controller is the issuer; the
+ * choice archives the current contract and creates a sibling with
+ * the replacement claims map plus optional new `expiresAt`.
+ *
+ * `reason` is stamped onto the new sibling's meta under
+ * `canton-vc/update.reason` so the chain log preserves the update
+ * event alongside its motivation. Empty reason is rejected at the
+ * choice body, so callers MUST supply a non-empty string.
+ */
+export function buildUpdateCredentialsCommand(
+  config: CantonConfig,
+  input: UpdateCredentialsInput,
+  commandId: CommandId,
+): SubmitAndWaitRequestBody {
+  const contractId = validateContractId(input.contractId, 'updateCredentials');
+  const issuer = validateParty(input.issuerParty, 'issuerParty');
+  const newClaims = validateClaims(input.newClaims);
+  const newExpiresAt =
+    input.newExpiresAt !== undefined
+      ? validateIsoDateTime(input.newExpiresAt, 'newExpiresAt')
+      : null;
+  if (typeof input.reason !== 'string' || input.reason.length === 0) {
+    throw new CantonError(
+      'invalid_command',
+      'updateCredentials: reason must be a non-empty string.',
+    );
+  }
+
+  const exerciseCommand = {
+    ExerciseCommand: {
+      templateId: config.packageName,
+      contractId,
+      choice: 'UpdateCredentials',
+      choiceArgument: {
+        newClaims: claimsToWire(newClaims),
+        newExpiresAt,
+        reason: input.reason,
+      },
+    },
+  };
+
+  return buildSubmissionEnvelope(config, commandId, [issuer], [exerciseCommand], false);
+}
+
 /* ---------- KycNFT (optional companion) ---------- */
 
 export interface CreateKycNftArguments {
@@ -576,4 +690,63 @@ export function buildCreateKycNftCommand(
   };
 
   return buildSubmissionEnvelope(config, commandId, [issuer], [createCommand], false);
+}
+
+/**
+ * Build the submission body for a `burnNft` call. Exercises the
+ * `BurnNft` template choice on the `Canton.VC.Credential.KycNFT`
+ * sibling template; controlled by the NFT's issuer.
+ *
+ * Standalone path — independent of the cascade burn that
+ * `revokeCredential` triggers when an NFT contract id is supplied.
+ */
+export function buildBurnNftCommand(
+  config: CantonConfig,
+  input: BurnNftInput,
+  commandId: CommandId,
+): SubmitAndWaitRequestBody {
+  const contractId = validateContractId(input.nftContractId, 'burnNft');
+  const issuer = validateParty(input.issuerParty, 'issuerParty');
+
+  const exerciseCommand = {
+    ExerciseCommand: {
+      templateId: `${config.packageName.replace(/:Credential$/, '')}:KycNFT`,
+      contractId,
+      choice: 'BurnNft',
+      choiceArgument: {},
+    },
+  };
+
+  return buildSubmissionEnvelope(config, commandId, [issuer], [exerciseCommand], false);
+}
+
+/**
+ * Build the submission body for an `archiveAsHolder` call. Exercises
+ * the CIP #204 standard `Credential_ArchiveAsHolder` interface choice
+ * on the credential contract.
+ *
+ * The choice is controlled by the credential's holder, archives the
+ * contract, and returns `Credential_ArchiveAsHolderResult { view,
+ * meta }` per the standard. LEDGER_EFFECTS is requested so the
+ * caller gets the result struct back from the participant.
+ */
+export function buildArchiveAsHolderCommand(
+  config: CantonConfig,
+  input: ArchiveAsHolderInput,
+  commandId: CommandId,
+): SubmitAndWaitRequestBody {
+  const contractId = validateContractId(input.contractId, 'archiveAsHolder');
+  const holder = validateParty(input.holderParty, 'holderParty');
+  const meta: Metadata = input.meta ?? {};
+
+  const exerciseCommand = {
+    ExerciseCommand: {
+      templateId: deriveCip204InterfaceId(config.packageName),
+      contractId,
+      choice: 'Credential_ArchiveAsHolder',
+      choiceArgument: { meta },
+    },
+  };
+
+  return buildSubmissionEnvelope(config, commandId, [holder], [exerciseCommand], true);
 }

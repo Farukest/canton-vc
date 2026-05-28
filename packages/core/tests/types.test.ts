@@ -1,5 +1,5 @@
 /**
- * Tests for `./src/types` — v2.0.0 (CIP #204 alignment).
+ * Tests for `./src/types`.
  *
  * `types.ts` exports:
  *
@@ -9,10 +9,9 @@
  *   * Generic claim accessors (`getClaim`, `getBoolClaim`, `getIntClaim`)
  *   * `isWithinValidityWindow` lifecycle helper
  *
- * Removed in v2.0.0 (vs. v1.1.0): the DB-side enum types
- * (`KycLevel`, `CredentialStatus`, `Validator`, `CanonicalNetwork`)
- * and the `DAML_TO_DB_*` / `DB_TO_DAML_*` mapping tables — those
- * are application-layer concerns, not SDK concerns.
+ * Application-layer vocabulary (KYC level enums, status mappings,
+ * DB-side type tables) is deliberately NOT in the SDK — consumers
+ * pick their own reverse-DNS namespace per CIP #204 §"Namespacing".
  */
 
 import { describe, expect, expectTypeOf, it } from 'vitest';

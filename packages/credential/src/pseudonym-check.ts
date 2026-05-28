@@ -2,12 +2,15 @@
  * Opt-in verifier-side heuristic that flags suspicious `userRef`
  * values on a verified `CredentialView`.
  *
- * The CIP draft (`docs/cip-draft-canton-vc-standard.md`) recommends
- * that issuers use credential-scoped random pseudonyms rather than
- * stable customer-DB identifiers; an issuer that emits the same
- * `userRef` to multiple verifiers exposes the holder to cross-
- * verifier correlation when those verifiers collude or hold side-
- * channel data on the holder.
+ * CIP #204 (https://github.com/canton-foundation/cips/pull/204)
+ * does not mandate how the issuer-side reference identifier
+ * (carried as a claim in the credential's `claims` TextMap under
+ * the issuer's reverse-DNS namespace, e.g. `com.example/userRef`)
+ * is constructed. This SDK recommends credential-scoped random
+ * pseudonyms rather than stable customer-DB identifiers; an issuer
+ * that emits the same `userRef` to multiple verifiers exposes the
+ * holder to cross-verifier correlation when those verifiers
+ * collude or hold side-channel data on the holder.
  *
  * The on-chain template's `ensure` clause only requires
  * `userRef /= ""`, so the standard cannot enforce a particular

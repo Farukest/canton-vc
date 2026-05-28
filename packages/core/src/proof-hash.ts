@@ -42,9 +42,20 @@
  * @module
  */
 
-import { createHash } from 'node:crypto';
+import { sha256 } from '@noble/hashes/sha2.js';
+import { bytesToHex } from '@noble/hashes/utils.js';
 
 import { CantonError } from './errors';
+
+/**
+ * Browser-safe SHA-256 hex digest of a UTF-8 string. Uses
+ * `@noble/hashes` (pure JS, audited, isomorphic) so the canonical
+ * proof-hash pipeline bundles cleanly into browser SPAs without
+ * pulling Node's `node:crypto` through a polyfill.
+ */
+function sha256HexUtf8(input: string): string {
+  return bytesToHex(sha256(new TextEncoder().encode(input)));
+}
 
 /* ---------- Canonical JSON (sortKeys + shortenFloats) ---------- */
 
@@ -204,7 +215,7 @@ export function computeSchemaId(spec: ProofSchemaSpec): string {
     fieldsInOrder: spec.fieldsInOrder,
     canonicalForm: spec.canonicalForm,
   });
-  return createHash('sha256').update(canonical, 'utf8').digest('hex');
+  return sha256HexUtf8(canonical);
 }
 
 /* ---------- Proof hash ---------- */
@@ -284,6 +295,6 @@ export function computeProofHash(
     ordered[field] = values[field] as ProofHashLeafValue;
   }
   const canonical = canonicalJson(ordered);
-  const proofHash = createHash('sha256').update(canonical, 'utf8').digest('hex');
+  const proofHash = sha256HexUtf8(canonical);
   return Object.freeze({ proofHash, proofSchemaId, canonical });
 }

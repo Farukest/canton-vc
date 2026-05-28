@@ -33,8 +33,8 @@ export const FIXTURE_LEDGER_OFFSET = '000000000000000001';
 
 export const FIXTURE_NOW = new Date('2026-04-11T18:00:00.000Z');
 
-export function fixtureRand(n: number): Buffer {
-  return Buffer.alloc(n, 0xab);
+export function fixtureRand(n: number): string {
+  return 'ab'.repeat(n);
 }
 
 export function fixtureClock(): number {

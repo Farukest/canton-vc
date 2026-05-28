@@ -1,6 +1,6 @@
 {
   "name": "@canton-vc/core",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Canton V2 JSON Ledger client — pure protocol wire layer for the canton-vc reference implementation. Config + Zod request/response validation, command builders (mint / verify / revoke), party parsing, retry-aware fetch. No business logic, no DB dependency.",
   "license": "Apache-2.0",
   "type": "module",
@@ -31,6 +31,7 @@
     "clean": "rm -rf .turbo dist"
   },
   "dependencies": {
+    "@noble/hashes": "^2.2.0",
     "zod": "4.3.6"
   },
   "devDependencies": {

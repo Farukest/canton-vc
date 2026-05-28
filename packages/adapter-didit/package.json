@@ -1,6 +1,6 @@
 {
   "name": "@canton-vc/adapter-didit",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Didit KYC provider adapter for canton-vc. Wraps the Didit v3 sessions API (POST /v3/session/, GET /v3/session/{id}/decision/) and HMAC-SHA256 webhook signatures behind the vendor-agnostic KycProvider interface.",
   "license": "Apache-2.0",
   "type": "module",

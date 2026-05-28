@@ -58,7 +58,7 @@ describe('CantonClient', () => {
     expect(body.commands.actAs).toEqual([FIXTURE_ISSUER_PARTY]);
   });
 
-  it('delegates findActiveCredentialByHolder + uses the supplied fetcher', async () => {
+  it('delegates findActiveCredentialByHolder against the holder party', async () => {
     const fake = buildFakeFetch();
     fake.enqueue({ kind: 'json', body: { offset: FIXTURE_LEDGER_OFFSET } });
     fake.enqueue({ kind: 'json', body: [buildAcsEntry()] });

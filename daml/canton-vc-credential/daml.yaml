@@ -1,6 +1,6 @@
 sdk-version: 3.4.11
 name: canton-vc-credential
-version: 2.0.0
+version: 2.1.0
 source: daml
 parties:
   - Operator
@@ -8,11 +8,15 @@ dependencies:
   - daml-prim
   - daml-stdlib
 build-options:
-  # `Cip204.Standard` is embedded in this package (v2.0.0) because
-  # the upstream `cip-204-credentials` package is still draft and
-  # not yet published as a Canton-mainnet artefact. Once it ships
-  # under a stable package id, we split it out and drop this flag.
-  # Same pragma is used by Splice's embedded reference standards.
-  - --target=2.dev
+  # Mainnet accepts LF 2.1–2.2; we pin to 2.2 because the previously
+  # uploaded v1.1.0 package was built at 2.2 and the participant's
+  # upgrade check refuses a same-package-name re-upload that
+  # downgrades the LF version. `-Wno-upgrade-interfaces` keeps the
+  # build green while `Cip204.Standard` is embedded in this same
+  # package; once the upstream `cip-204-credentials` package ships
+  # under a stable mainnet package id, we split it out and drop
+  # this flag. Same pragma is used by Splice's embedded reference
+  # standards.
+  - --target=2.2
   - -Wno-upgrade-interfaces
   - -Wno-upgrade-exceptions

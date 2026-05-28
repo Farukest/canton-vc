@@ -1,14 +1,13 @@
 /**
- * PKCE helpers using the Web Crypto API (RFC 7636).
- *
- * Works in any environment that exposes `crypto.subtle` — modern
- * browsers, Deno, Bun, and Node.js ≥18. Falls back to the Node
- * `node:crypto` module when `crypto.subtle` is missing (older Node
- * LTS + specific serverless runtimes) so the same SDK can power a
- * firm's backend code-exchange helper too.
+ * PKCE helpers (RFC 7636) using `@noble/hashes` for SHA-256 — pure
+ * JavaScript, isomorphic, audited. Works identically in modern
+ * browsers, Deno, Bun, Node.js, and any serverless runtime without
+ * depending on Web Crypto being available.
  *
  * @module
  */
+
+import { sha256 as nobleSha256 } from '@noble/hashes/sha2.js';
 
 import { CantonVcOauthError } from './errors';
 
@@ -66,21 +65,7 @@ export async function computeCodeChallenge(
 // ---------------------------------------------------------------------------
 
 async function sha256(data: Uint8Array): Promise<Uint8Array> {
-  const cryptoSource = resolveCrypto();
-  if (typeof cryptoSource.subtle !== 'undefined') {
-    // Copy into a fresh ArrayBuffer so the Web Crypto API sees an
-    // ArrayBuffer-backed view rather than a SharedArrayBuffer or
-    // other exotic backing store.
-    const copy = new Uint8Array(data);
-    const digest = await cryptoSource.subtle.digest('SHA-256', copy.buffer);
-    return new Uint8Array(digest);
-  }
-  // Node fallback for runtimes without subtle (older Node, edge
-  // runtime variants). Lazy-import so browser bundlers don't pull
-  // in the Node shim.
-  type NodeCrypto = { createHash(alg: string): { update(data: Uint8Array): { digest(): Uint8Array } } };
-  const { createHash } = (await import('node:crypto')) as unknown as NodeCrypto;
-  return new Uint8Array(createHash('sha256').update(data).digest());
+  return nobleSha256(data);
 }
 
 function resolveCrypto(): Crypto {

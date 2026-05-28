@@ -138,7 +138,7 @@ export interface KycDecision {
    * by id to learn which named fields were hashed and in what order.
    *
    * Adapters MUST emit a non-empty value here; the Canton.VC.Credential
-   * template ensure clause rejects empty/null on every v1.1.0+ mint.
+   * template ensure clause rejects empty/null on every mint.
    */
   readonly proofSchemaId: string;
   /** ISO 8601 timestamp at which the credential should expire. */

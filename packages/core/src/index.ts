@@ -35,9 +35,12 @@ export type {
   SubmitAndWaitRequestBody,
 } from './commands';
 export {
+  buildArchiveAsHolderCommand,
+  buildBurnNftCommand,
   buildCreateCredentialCommand,
   buildCreateKycNftCommand,
   buildRevokeCredentialCommand,
+  buildUpdateCredentialsCommand,
   buildVerifyCredentialCommand,
   deterministicCommandId,
   MAX_COMMAND_ID_LENGTH,
@@ -59,12 +62,15 @@ export type { CantonFetchOptions, FetchLike, FetchLikeResponse } from './http';
 export { cantonFetch, cantonFetchOnce } from './http';
 export {
   allocateParty,
+  archiveAsHolder,
+  burnNft,
   createCredential,
   createKycNft,
   getLedgerEnd,
   partyExists,
   resolveNamespace,
   revokeCredential,
+  updateCredentials,
   verifyCredential,
 } from './ledger';
 export type { ParsedPartyId } from './party';
@@ -109,6 +115,7 @@ export {
 export type {
   ActiveContractEntryWire,
   ActiveContractsResponse,
+  ArchiveAsHolderResultWire,
   CantonApiError,
   CantonCredentialPayloadWire,
   ClaimsWire,
@@ -125,6 +132,7 @@ export type {
 } from './schemas';
 export {
   ActiveContractsResponseSchema,
+  ArchiveAsHolderResultSchema,
   CantonApiErrorSchema,
   CredentialViewSchema,
   LedgerEndResponseSchema,
@@ -137,7 +145,11 @@ export {
 } from './schemas';
 export type {
   ActiveContract,
+  ArchiveAsHolderInput,
+  ArchiveAsHolderResult,
   Brand,
+  BurnNftInput,
+  BurnNftResult,
   CantonCredentialPayload,
   Claims,
   CommandId,
@@ -155,6 +167,8 @@ export type {
   RevokeCredentialInput,
   RevokeCredentialResult,
   TemplateId,
+  UpdateCredentialsInput,
+  UpdateCredentialsResult,
   UpdateId,
   VerifyCredentialInput,
   VerifyCredentialResult,

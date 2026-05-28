@@ -1,6 +1,6 @@
 {
   "name": "@canton-vc/adapter-mock",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Deterministic mock KycProvider for testing and local development. Drop-in replacement for real adapters in CI, integration tests, and demo deployments. Approves, declines, or holds in review based on configurable rules.",
   "license": "Apache-2.0",
   "type": "module",

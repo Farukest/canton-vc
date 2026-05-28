@@ -1,5 +1,5 @@
 /**
- * Zod schemas for the Canton V2 JSON Ledger API wire shapes — v2.0.0.
+ * Zod schemas for the Canton V2 JSON Ledger API wire shapes.
  *
  * Every response the client receives from the participant is parsed
  * through one of these schemas before the value is handed to callers.
@@ -13,17 +13,13 @@
  * only where the participant legitimately attaches optional diagnostic
  * fields we don't want to reject.
  *
- * v2.0.0 SHAPE CHANGES (CIP #204 alignment):
- *   * Credential payload moved from flat v1.1.0 fields
- *     (`operator/user/userRef/proofHash/level/...`) to the #204
- *     structural shape (`issuer/holder/admin/claims/createdAt/
- *     expiresAt/meta`). Application-specific fields live inside
- *     `claims.values` under the application's chosen reverse-DNS
- *     namespace per CIP #204 §"Namespacing".
- *   * `CredentialView` from the `Verify` choice is replaced by the
- *     `CredentialView` returned by `Credential_PublicFetch`. Shape
- *     is byte-identical to the template payload (since it's the
- *     interface's `viewtype`).
+ * Credential payload mirrors the CIP #204 structural shape:
+ * `issuer/holder/admin/claims/createdAt/expiresAt/meta`. Application
+ * fields live inside `claims.values` under the application's chosen
+ * reverse-DNS namespace per CIP #204 §"Namespacing". The
+ * `CredentialView` returned by `Credential_PublicFetch` is byte-
+ * identical to the template payload (it is the interface's
+ * `viewtype`).
  */
 
 import { z } from 'zod';
@@ -31,9 +27,9 @@ import { z } from 'zod';
 /* ---------- Primitives ---------- */
 
 /**
- * Canton offset. Wire shape varies by endpoint and Canton version.
- * See v1.1.0 schemas for the historical reasoning; behaviour
- * unchanged in v2.0.0.
+ * Canton offset. Wire shape varies by endpoint and Canton version:
+ * some endpoints return a JSON string, others a JSON integer. We
+ * accept either and normalise to the canonical string form.
  */
 const OffsetString = z
   .union([z.string().min(1).max(1024), z.number().int().nonnegative()])
@@ -203,6 +199,20 @@ export function parseCredentialPayload(raw: unknown): CantonCredentialPayloadWir
 export const CredentialViewSchema = CantonCredentialPayloadSchema;
 
 export type CredentialViewWire = z.infer<typeof CredentialViewSchema>;
+
+/**
+ * On-wire shape of the CIP #204 `Credential_ArchiveAsHolderResult`
+ * record returned by the `Credential_ArchiveAsHolder` interface choice:
+ * the now-archived view plus the caller-supplied metadata.
+ */
+export const ArchiveAsHolderResultSchema = z
+  .object({
+    archivedCredential: CredentialViewSchema,
+    meta: TextMapStringSchema,
+  })
+  .passthrough();
+
+export type ArchiveAsHolderResultWire = z.infer<typeof ArchiveAsHolderResultSchema>;
 
 /* ---------- `KycNFT` payload (optional companion template) ---------- */
 

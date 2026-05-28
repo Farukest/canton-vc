@@ -1,6 +1,6 @@
 {
   "name": "@canton-vc/adapter-sumsub",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Sumsub KYC provider adapter for canton-vc. Wraps Sumsub's applicants API with per-request HMAC authentication (X-App-Access-Sig over ts+method+path+body) and the multi-algorithm webhook digest scheme (X-Payload-Digest), behind the vendor-agnostic KycProvider interface. Second production reference adapter alongside @canton-vc/adapter-didit; the two cover token-auth and per-request HMAC patterns most KYC vendors use.",
   "license": "Apache-2.0",
   "type": "module",

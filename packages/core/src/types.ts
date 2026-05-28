@@ -269,6 +269,113 @@ export interface RevokeCredentialResult {
 }
 
 /**
+ * Arguments accepted by `updateCredentials()`. Exercises the
+ * implementer-side `UpdateCredentials` choice on the credential
+ * template — bulk replacement of the claims map and (optionally)
+ * the template-level `expiresAt`, in a single Canton transaction.
+ *
+ * Not part of CIP #204. Provided so issuers can refresh vendor-
+ * driven evidence (re-verification, level upgrade, validity-window
+ * extension) without going through the full `revoke + remint`
+ * pattern.
+ *
+ * Controller is the issuer; the holder can reject an unwanted
+ * update after the fact via `archiveAsHolder()`.
+ */
+export interface UpdateCredentialsInput {
+  readonly contractId: ContractId;
+  readonly issuerParty: PartyId;
+  /**
+   * Replacement claims map. Must contain at least one entry; the
+   * template's ensure clause rejects an empty map at the chain
+   * boundary.
+   */
+  readonly newClaims: Claims;
+  /**
+   * Optional replacement template-level `expiresAt`. Pass
+   * `undefined` to clear, an ISO 8601 timestamp to set, or omit
+   * to leave the existing value untouched — wire encoding flattens
+   * `undefined` to Daml `None`.
+   */
+  readonly newExpiresAt?: string;
+  /**
+   * Free-form reason text recorded under the new sibling's
+   * `canton-vc/update.reason` meta key. The DAML choice rejects
+   * an empty string.
+   */
+  readonly reason: string;
+}
+
+/**
+ * Result of a successful `updateCredentials()` call. Mirrors the
+ * shape returned by `revokeCredential()`: the new sibling's
+ * contract id plus tx metadata.
+ */
+export interface UpdateCredentialsResult {
+  readonly contractId: ContractId;
+  readonly commandId: CommandId;
+  readonly updateId: UpdateId;
+  readonly recordTime: string;
+}
+
+/**
+ * Arguments accepted by `archiveAsHolder()`. Exercises the CIP #204
+ * standard `Credential_ArchiveAsHolder` interface choice. The
+ * controller is the credential's holder; the choice archives the
+ * contract and returns the now-archived `CredentialView` along with
+ * the supplied metadata, per the standard.
+ *
+ * Distinct from the implementer-side `revokeCredential()` (issuer
+ * compliance path) — this is the holder's voluntary self-archive.
+ */
+export interface ArchiveAsHolderInput {
+  readonly contractId: ContractId;
+  readonly holderParty: PartyId;
+  /**
+   * Free-form metadata attached to the archive result. Per CIP #204
+   * §"Namespacing" keys SHOULD be reverse-DNS; the SDK forwards the
+   * map verbatim.
+   */
+  readonly meta?: Metadata;
+}
+
+/**
+ * Result of a successful `archiveAsHolder()` call. Mirrors the DAML
+ * `Credential_ArchiveAsHolderResult` record (view + meta).
+ */
+export interface ArchiveAsHolderResult {
+  readonly contractId: ContractId;
+  readonly commandId: CommandId;
+  readonly updateId: UpdateId;
+  readonly recordTime: string;
+  readonly view: CredentialView;
+  readonly meta: Metadata;
+}
+
+/**
+ * Arguments accepted by the standalone `burnNft()` helper. Archives
+ * a `KycNFT` contract directly (issuer-controlled), independent of
+ * any cascade burn the revoke path triggers.
+ *
+ * The DAML `BurnNft` choice is controlled by the NFT's issuer; the
+ * SDK submits with the supplied `issuerParty` as the sole actor.
+ */
+export interface BurnNftInput {
+  readonly nftContractId: ContractId;
+  readonly issuerParty: PartyId;
+}
+
+/**
+ * Result of a successful `burnNft()` call.
+ */
+export interface BurnNftResult {
+  readonly contractId: ContractId;
+  readonly commandId: CommandId;
+  readonly updateId: UpdateId;
+  readonly recordTime: string;
+}
+
+/**
  * Active contract returned by an ACS query.
  */
 export interface ActiveContract {

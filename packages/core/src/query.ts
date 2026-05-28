@@ -92,6 +92,16 @@ function extractCreatedEvent(
  * shape. The wire payload is re-parsed against the credential
  * schema so any drift in the on-chain shape surfaces with a clear
  * error instead of `undefined` field reads downstream.
+ *
+ * Returns `null` when the wire payload fails the schema parse —
+ * typically because the active-contracts query resolved the
+ * package-name reference (`#canton-vc-credential:...`) to a mixed
+ * set including contracts created under an older template version
+ * with a different storage shape. Silent-skip is the right
+ * behaviour at this layer: caller iterates and keeps the contracts
+ * it can read; the unreadable rows belong to a prior package
+ * version no longer part of the v2.0.0 surface and should be
+ * ignored, not surfaced as a transport error.
  */
 function hydrateActiveContract(
   createdEvent: ReturnType<typeof extractCreatedEvent>,
@@ -99,7 +109,12 @@ function hydrateActiveContract(
   if (createdEvent === null) {
     return null;
   }
-  const parsed = parseCredentialPayload(createdEvent.createArgument);
+  let parsed: ReturnType<typeof parseCredentialPayload>;
+  try {
+    parsed = parseCredentialPayload(createdEvent.createArgument);
+  } catch {
+    return null;
+  }
   const payload: CantonCredentialPayload = Object.freeze({
     issuer: parsed.issuer as PartyId,
     holder: parsed.holder as PartyId,

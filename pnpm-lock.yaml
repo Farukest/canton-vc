@@ -206,6 +206,9 @@ importers:
 
   packages/core:
     dependencies:
+      '@noble/hashes':
+        specifier: ^2.2.0
+        version: 2.2.0
       zod:
         specifier: 4.3.6
         version: 4.3.6
@@ -225,6 +228,9 @@ importers:
       '@canton-vc/core':
         specifier: workspace:*
         version: link:../core
+      '@noble/hashes':
+        specifier: ^2.2.0
+        version: 2.2.0
     devDependencies:
       '@types/node':
         specifier: 22.10.2
@@ -695,6 +701,10 @@ packages:
 
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
+
+  '@noble/hashes@2.2.0':
+    resolution: {integrity: sha512-IYqDGiTXab6FniAgnSdZwgWbomxpy9FtYvLKs7wCUs2a8RkITG+DFGO1DM9cr+E3/RgADRpFjrKVaJ1z6sjtEg==}
+    engines: {node: '>= 20.19.0'}
 
   '@rollup/rollup-android-arm-eabi@4.60.4':
     resolution: {integrity: sha512-F5QXMSiFebS9hKZj02XhWLLnRpJ3B3AROP0tWbFBSj+6kCbg5m9j5JoHKd4mmSVy5mS/IMQloYgYxCuJC0fxEQ==}
@@ -1617,6 +1627,8 @@ snapshots:
     dependencies:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
+
+  '@noble/hashes@2.2.0': {}
 
   '@rollup/rollup-android-arm-eabi@4.60.4':
     optional: true

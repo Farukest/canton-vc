@@ -25,9 +25,12 @@
  */
 
 import {
+  buildArchiveAsHolderCommand,
+  buildBurnNftCommand,
   buildCreateCredentialCommand,
   buildCreateKycNftCommand,
   buildRevokeCredentialCommand,
+  buildUpdateCredentialsCommand,
   buildVerifyCredentialCommand,
   newCommandId,
 } from './commands';
@@ -42,6 +45,7 @@ import {
 } from './party';
 import {
   ActiveContractsResponseSchema,
+  ArchiveAsHolderResultSchema,
   CredentialViewSchema,
   LedgerEndResponseSchema,
   ParticipantIdResponseSchema,
@@ -51,6 +55,10 @@ import {
   SubmitAndWaitResponseSchema,
 } from './schemas';
 import type {
+  ArchiveAsHolderInput,
+  ArchiveAsHolderResult,
+  BurnNftInput,
+  BurnNftResult,
   CommandId,
   ContractId,
   CreateCredentialInput,
@@ -59,9 +67,12 @@ import type {
   CreateKycNftResult,
   CredentialView,
   LedgerOffset,
+  Metadata,
   PartyId,
   RevokeCredentialInput,
   RevokeCredentialResult,
+  UpdateCredentialsInput,
+  UpdateCredentialsResult,
   UpdateId,
   VerifyCredentialInput,
   VerifyCredentialResult,
@@ -468,6 +479,150 @@ export async function revokeCredential(
 
   return Object.freeze({
     contractId: input.contractId,
+    commandId,
+    updateId: response.transaction.updateId as UpdateId,
+    recordTime: response.transaction.recordTime,
+  });
+}
+
+/**
+ * Exercise the implementer-side `UpdateCredentials` choice — bulk
+ * replacement of the claims map (and optionally the template-level
+ * `expiresAt`) in a single Canton transaction. Archives the
+ * current contract and creates a sibling carrying the new payload.
+ *
+ * NOT part of CIP #204. Provided so issuers can refresh vendor-
+ * driven evidence without the full revoke + remint round-trip.
+ * The returned `contractId` is the new sibling's id.
+ */
+export async function updateCredentials(
+  config: CantonConfig,
+  input: UpdateCredentialsInput,
+  fetchImpl?: FetchLike,
+): Promise<UpdateCredentialsResult> {
+  const commandId = newCommandId(config, 'update');
+  const body = buildUpdateCredentialsCommand(config, input, commandId);
+
+  const response = await cantonFetch(
+    config,
+    {
+      method: 'POST',
+      path: '/v2/commands/submit-and-wait-for-transaction',
+      body,
+      schema: SubmitAndWaitResponseSchema,
+      retry: 'never',
+      context: { op: 'updateCredentials', commandId, contractId: input.contractId },
+    },
+    fetchImpl,
+  );
+
+  // The choice returns the new sibling's contract id (typed
+  // `ContractId Credential` on the DAML side). Same extraction
+  // pattern as `revokeCredential`.
+  const newContractId = extractCreatedContractId(response, commandId);
+  return Object.freeze({
+    contractId: newContractId,
+    commandId,
+    updateId: response.transaction.updateId as UpdateId,
+    recordTime: response.transaction.recordTime,
+  });
+}
+
+/**
+ * Exercise the CIP #204 standard `Credential_ArchiveAsHolder`
+ * interface choice. Controlled by the holder; archives the
+ * contract atomically and returns the now-archived `CredentialView`
+ * plus the caller-supplied `meta` map per the standard.
+ *
+ * Distinct from `revokeCredential()`: that is the implementer-side
+ * issuer compliance path; this is the holder's voluntary self-archive.
+ */
+export async function archiveAsHolder(
+  config: CantonConfig,
+  input: ArchiveAsHolderInput,
+  fetchImpl?: FetchLike,
+): Promise<ArchiveAsHolderResult> {
+  const commandId = newCommandId(config, 'archive-holder');
+  const body = buildArchiveAsHolderCommand(config, input, commandId);
+
+  const response = await cantonFetch(
+    config,
+    {
+      method: 'POST',
+      path: '/v2/commands/submit-and-wait-for-transaction',
+      body,
+      schema: SubmitAndWaitResponseSchema,
+      retry: 'never',
+      context: { op: 'archiveAsHolder', commandId, contractId: input.contractId },
+    },
+    fetchImpl,
+  );
+
+  let archived: CredentialView | null = null;
+  let meta: Metadata = {};
+  for (const event of response.transaction.events) {
+    if (event.ExercisedEvent !== undefined) {
+      const raw = event.ExercisedEvent.exerciseResult;
+      const parsed = ArchiveAsHolderResultSchema.safeParse(raw);
+      if (!parsed.success) {
+        throw new CantonError(
+          'invalid_response',
+          `Canton Credential_ArchiveAsHolder exercise returned a result that does not match Credential_ArchiveAsHolderResult: ${parsed.error.message}.`,
+          { context: { commandId, updateId: response.transaction.updateId } },
+        );
+      }
+      archived = parsed.data.archivedCredential as unknown as CredentialView;
+      meta = parsed.data.meta;
+      break;
+    }
+  }
+  if (archived === null) {
+    throw new CantonError(
+      'invalid_response',
+      'Canton Credential_ArchiveAsHolder exercise returned no ExercisedEvent.',
+      { context: { commandId, updateId: response.transaction.updateId } },
+    );
+  }
+
+  return Object.freeze({
+    contractId: input.contractId,
+    commandId,
+    updateId: response.transaction.updateId as UpdateId,
+    recordTime: response.transaction.recordTime,
+    view: archived,
+    meta,
+  });
+}
+
+/**
+ * Standalone burn of a `KycNFT` contract. Exercises the `BurnNft`
+ * template choice — controlled by the NFT's issuer. Independent of
+ * the cascade burn that `revokeCredential` triggers when supplied
+ * with an NFT contract id.
+ */
+export async function burnNft(
+  config: CantonConfig,
+  input: BurnNftInput,
+  fetchImpl?: FetchLike,
+): Promise<BurnNftResult> {
+  const commandId = newCommandId(config, 'burn-nft');
+  const body = buildBurnNftCommand(config, input, commandId);
+
+  const response = await cantonFetch(
+    config,
+    {
+      method: 'POST',
+      path: '/v2/commands/submit-and-wait-for-transaction',
+      body,
+      schema: SubmitAndWaitResponseSchema,
+      retry: 'never',
+      context: { op: 'burnNft', commandId, contractId: input.nftContractId },
+    },
+    fetchImpl,
+  );
+
+  return Object.freeze({
+    contractId: input.nftContractId,
     commandId,
     updateId: response.transaction.updateId as UpdateId,
     recordTime: response.transaction.recordTime,

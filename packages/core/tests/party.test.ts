@@ -39,23 +39,23 @@ import {
 
 import {
   buildTestConfig,
-  FIXTURE_HOLDER_PARTY as FIXTURE_USER_PARTY,
-  FIXTURE_ISSUER_PARTY as FIXTURE_OPERATOR_PARTY,
+  FIXTURE_HOLDER_PARTY,
+  FIXTURE_ISSUER_PARTY,
   FIXTURE_NAMESPACE,
   FIXTURE_PARTICIPANT_ID,
 } from './fixtures';
 
 describe('parsePartyId', () => {
-  it('parses a canonical operator party id', () => {
-    const parsed = parsePartyId(FIXTURE_OPERATOR_PARTY);
-    expect(parsed.raw).toBe(FIXTURE_OPERATOR_PARTY);
-    expect(parsed.label).toBe('Operator');
+  it('parses a canonical issuer party id', () => {
+    const parsed = parsePartyId(FIXTURE_ISSUER_PARTY);
+    expect(parsed.raw).toBe(FIXTURE_ISSUER_PARTY);
+    expect(parsed.label).toBe('Issuer');
     expect(parsed.fingerprint).toBe(FIXTURE_NAMESPACE);
   });
 
-  it('parses a user party id with a hyphenated label', () => {
-    const parsed = parsePartyId(FIXTURE_USER_PARTY);
-    expect(parsed.label).toBe('User-abc123');
+  it('parses a holder party id with a hyphenated label', () => {
+    const parsed = parsePartyId(FIXTURE_HOLDER_PARTY);
+    expect(parsed.label).toBe('Holder-abc123');
     expect(parsed.fingerprint).toBe(FIXTURE_NAMESPACE);
   });
 
@@ -65,7 +65,7 @@ describe('parsePartyId', () => {
   });
 
   it('returns a frozen object', () => {
-    const parsed = parsePartyId(FIXTURE_OPERATOR_PARTY);
+    const parsed = parsePartyId(FIXTURE_ISSUER_PARTY);
     expect(Object.isFrozen(parsed)).toBe(true);
   });
 
@@ -133,8 +133,8 @@ describe('parsePartyId', () => {
 
 describe('buildPartyId', () => {
   it('builds a party id from a label + fingerprint', () => {
-    const pid = buildPartyId('Operator', FIXTURE_NAMESPACE);
-    expect(pid).toBe(FIXTURE_OPERATOR_PARTY);
+    const pid = buildPartyId('Issuer', FIXTURE_NAMESPACE);
+    expect(pid).toBe(FIXTURE_ISSUER_PARTY);
   });
 
   it('rejects a bad label', () => {
@@ -153,8 +153,8 @@ describe('buildPartyId', () => {
 
 describe('isPartyId', () => {
   it('returns true for valid party strings', () => {
-    expect(isPartyId(FIXTURE_OPERATOR_PARTY)).toBe(true);
-    expect(isPartyId(FIXTURE_USER_PARTY)).toBe(true);
+    expect(isPartyId(FIXTURE_ISSUER_PARTY)).toBe(true);
+    expect(isPartyId(FIXTURE_HOLDER_PARTY)).toBe(true);
   });
 
   it('returns false for invalid party strings', () => {
@@ -174,20 +174,20 @@ describe('isPartyId', () => {
 
 describe('isSameParty', () => {
   it('returns true for identical party ids', () => {
-    expect(isSameParty(FIXTURE_OPERATOR_PARTY as PartyId, FIXTURE_OPERATOR_PARTY as PartyId)).toBe(
+    expect(isSameParty(FIXTURE_ISSUER_PARTY as PartyId, FIXTURE_ISSUER_PARTY as PartyId)).toBe(
       true,
     );
   });
 
   it('returns false for different party ids', () => {
-    expect(isSameParty(FIXTURE_OPERATOR_PARTY as PartyId, FIXTURE_USER_PARTY as PartyId)).toBe(
+    expect(isSameParty(FIXTURE_ISSUER_PARTY as PartyId, FIXTURE_HOLDER_PARTY as PartyId)).toBe(
       false,
     );
   });
 
   it('is case-sensitive on the label', () => {
     const upper = `OPERATOR::${FIXTURE_NAMESPACE}` as PartyId;
-    expect(isSameParty(FIXTURE_OPERATOR_PARTY as PartyId, upper)).toBe(false);
+    expect(isSameParty(FIXTURE_ISSUER_PARTY as PartyId, upper)).toBe(false);
   });
 });
 
@@ -284,8 +284,8 @@ describe('partyIdFromHint', () => {
 
 describe('resolvePartyFromInput', () => {
   it('passes a fully-qualified party id through', () => {
-    expect(resolvePartyFromInput(FIXTURE_OPERATOR_PARTY, FIXTURE_NAMESPACE)).toBe(
-      FIXTURE_OPERATOR_PARTY,
+    expect(resolvePartyFromInput(FIXTURE_ISSUER_PARTY, FIXTURE_NAMESPACE)).toBe(
+      FIXTURE_ISSUER_PARTY,
     );
   });
 

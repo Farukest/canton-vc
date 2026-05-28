@@ -15,12 +15,15 @@ import { type CantonEnv, getCantonConfig, loadCantonConfig } from './config';
 import type { FetchLike } from './http';
 import {
   allocateParty,
+  archiveAsHolder,
+  burnNft,
   createCredential,
   createKycNft,
   getLedgerEnd,
   partyExists,
   resolveNamespace,
   revokeCredential,
+  updateCredentials,
   verifyCredential,
 } from './ledger';
 import { getCachedNamespace, resetNamespaceCacheForConfig } from './party';
@@ -34,6 +37,10 @@ import {
 } from './query';
 import type {
   ActiveContract,
+  ArchiveAsHolderInput,
+  ArchiveAsHolderResult,
+  BurnNftInput,
+  BurnNftResult,
   CommandId,
   ContractId,
   CreateCredentialInput,
@@ -45,6 +52,8 @@ import type {
   PartyId,
   RevokeCredentialInput,
   RevokeCredentialResult,
+  UpdateCredentialsInput,
+  UpdateCredentialsResult,
   VerifyCredentialInput,
   VerifyCredentialResult,
 } from './types';
@@ -107,12 +116,24 @@ export class CantonClient {
     return revokeCredential(this.config, input, issuerParty, this.fetchImpl);
   }
 
+  updateCredentials(input: UpdateCredentialsInput): Promise<UpdateCredentialsResult> {
+    return updateCredentials(this.config, input, this.fetchImpl);
+  }
+
   createKycNft(
     input: CreateKycNftInput,
     issuerParty: PartyId,
     options?: { readonly commandId?: CommandId },
   ): Promise<CreateKycNftResult> {
     return createKycNft(this.config, input, issuerParty, this.fetchImpl, options?.commandId);
+  }
+
+  archiveAsHolder(input: ArchiveAsHolderInput): Promise<ArchiveAsHolderResult> {
+    return archiveAsHolder(this.config, input, this.fetchImpl);
+  }
+
+  burnNft(input: BurnNftInput): Promise<BurnNftResult> {
+    return burnNft(this.config, input, this.fetchImpl);
   }
 
   /* ---- Reads ---- */

@@ -1,6 +1,6 @@
 {
   "name": "@canton-vc/adapter-persona",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Persona KYC provider adapter for canton-vc. Wraps Persona's JSON:API inquiry endpoints (Bearer auth, Persona-Version-pinned request envelope, JSON:API relationships) with the Persona-Signature webhook scheme (HMAC-SHA256 over `<ts>.<rawBody>` with key rotation support) behind the vendor-agnostic KycProvider interface. Third production reference adapter alongside @canton-vc/adapter-didit and @canton-vc/adapter-sumsub; covers the JSON:API + async-inquiry pattern as a third structurally distinct vendor shape.",
   "license": "Apache-2.0",
   "type": "module",

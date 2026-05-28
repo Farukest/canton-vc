@@ -54,9 +54,9 @@ export interface VerifyDisclosureOptions {
   /**
    * The admin party the caller expects on the credential. The
    * implementer asserts `expectedAdmin == admin` inside the choice
-   * body. Typically the issuer's well-known operator party id
-   * (published in the issuer's OIDC discovery document or out-of-
-   * band).
+   * body. Typically the issuer's published admin party id (the
+   * disclosure authority advertised in the issuer's OIDC discovery
+   * document or out-of-band trust list).
    */
   readonly expectedAdmin: string;
 }

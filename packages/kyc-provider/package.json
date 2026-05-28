@@ -1,6 +1,6 @@
 {
   "name": "@canton-vc/kyc-provider",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Generic KycProvider interface for canton-vc — vendor-agnostic contract for KYC sessions, decisions, and webhooks. Implemented by adapter packages (@canton-vc/adapter-didit, …) so issuers can swap providers without touching the credential pipeline.",
   "license": "Apache-2.0",
   "type": "module",

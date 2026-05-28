@@ -4,7 +4,7 @@
  * Canton party IDs follow the `<Label>::<Fingerprint>` shape where:
  *
  *   * `Label` is an alphanumeric string chosen by the caller at
- *     allocation time (`Operator`, `FirmAcme`, `User-1234`).
+ *     allocation time (`Issuer`, `FirmAcme`, `Holder-1234`).
  *     Canton permits underscores and dashes, but we take a
  *     conservative approach and forbid a handful of control
  *     characters that would be hard to reason about.
@@ -232,7 +232,7 @@ export function resetAllNamespaceCachesForTests(): void {
 /**
  * Construct a full party id from a hint (just the label) and a
  * namespace (fingerprint). Used when the route layer has a label
- * like `User-abc123` and needs the full party id for a Daml command.
+ * like `Holder-abc123` and needs the full party id for a Daml command.
  */
 export function partyIdFromHint(labelHint: string, namespace: string): PartyId {
   return buildPartyId(labelHint, namespace);
