@@ -29,6 +29,7 @@
  */
 
 import type { CredentialView } from '@canton-vc/core';
+import { getClaim } from '@canton-vc/core';
 
 /**
  * Minimum acceptable length for a `userRef` that is being claimed as
@@ -96,10 +97,9 @@ function shannonEntropyPerChar(s: string): number {
 export const MIN_PSEUDONYM_ENTROPY_BITS = 3.0;
 
 /**
- * Returns `true` when the `userRef` on the supplied {@link
- * CredentialView} plausibly looks like a credential-scoped random
- * pseudonym, and `false` otherwise. Heuristic, see module
- * docstring for the rationale.
+ * Returns `true` when the supplied string plausibly looks like a
+ * credential-scoped random pseudonym, and `false` otherwise.
+ * Heuristic — see module docstring for the rationale.
  *
  * Reasons a value returns `false`:
  *   - empty or shorter than {@link MIN_PSEUDONYM_LENGTH}
@@ -107,8 +107,7 @@ export const MIN_PSEUDONYM_ENTROPY_BITS = 3.0;
  *   - Shannon entropy below {@link MIN_PSEUDONYM_ENTROPY_BITS}
  *   - contains whitespace (a real pseudonym never does)
  */
-export function userRefLooksLikePseudonym(view: CredentialView): boolean {
-  const raw = view.userRef;
+export function looksLikePseudonym(raw: string | undefined | null): boolean {
   if (typeof raw !== 'string' || raw.length < MIN_PSEUDONYM_LENGTH) {
     return false;
   }
@@ -128,16 +127,27 @@ export function userRefLooksLikePseudonym(view: CredentialView): boolean {
 }
 
 /**
- * Throws when {@link userRefLooksLikePseudonym} would have returned
- * `false`. Strict-mode counterpart for verifiers that want a hard
- * fail on suspicious `userRef` values rather than a boolean to act
- * on. The thrown `Error` carries the original `userRef` (so callers
- * can log it) but does not embed the heuristic decision rule.
+ * Convenience wrapper that pulls a named claim out of a
+ * {@link CredentialView} and runs the pseudonym heuristic on it.
+ *
+ * `claimKey` is application-defined (e.g. `'com.example/userRef'`)
+ * — the SDK has no opinion on claim namespacing. Returns `false`
+ * when the claim is missing.
  */
-export function assertUserRefIsPseudonym(view: CredentialView): void {
-  if (!userRefLooksLikePseudonym(view)) {
+export function claimLooksLikePseudonym(view: CredentialView, claimKey: string): boolean {
+  return looksLikePseudonym(getClaim(view.claims, claimKey));
+}
+
+/**
+ * Strict-mode counterpart for verifiers that want a hard fail on
+ * suspicious values rather than a boolean to act on. The thrown
+ * `Error` carries the original value (so callers can log it) but
+ * does not embed the heuristic decision rule.
+ */
+export function assertLooksLikePseudonym(raw: string | undefined | null): void {
+  if (!looksLikePseudonym(raw)) {
     throw new Error(
-      `assertUserRefIsPseudonym: userRef "${view.userRef}" failed the pseudonym heuristic — looks like a stable identifier rather than a credential-scoped random pseudonym (CIP §2 operator design constraints).`,
+      `assertLooksLikePseudonym: value "${String(raw)}" failed the pseudonym heuristic — looks like a stable identifier rather than a credential-scoped random pseudonym (CIP #204 operator design constraints).`,
     );
   }
 }

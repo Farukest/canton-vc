@@ -1,19 +1,27 @@
 /**
- * Canton client types.
+ * Canton client types — v2.0.0 (CIP #204 alignment).
  *
- * This module defines the *nominal* types that flow through the
- * Canton client. Branded strings (`PartyId`, `ContractId`, etc.)
- * prevent accidental cross-use at the type level even though every
- * value is a runtime `string`. Constructors are defined in the modules
- * that validate them (`party.ts` for `PartyId`, `commands.ts` for
- * `CommandId`) so that a brand can only be minted through a validated
- * path, never by hand.
+ * This module defines the generic types that flow through the Canton
+ * Verifiable Credentials SDK. Application-specific concerns (KYC
+ * vendor enums, level/status vocabularies, reverse-DNS claim
+ * namespaces, lifecycle semantics) live in consumer code — the SDK
+ * is intentionally agnostic to any specific issuer.
  *
- * The payload types mirror the fields of the `Canton.VC.Credential`
- * Daml template on a 1:1 basis. They are the ground-truth for the
- * on-ledger shape: any schema drift in the Daml model requires an
- * update here and a corresponding migration of any persisted meta
- * rows that carry the old shape.
+ * Branded strings (`PartyId`, `ContractId`, …) prevent cross-use at
+ * the type level even though every value is a runtime `string`.
+ * Constructors live in the modules that validate them (`party.ts`,
+ * `commands.ts`).
+ *
+ * The payload type mirrors the `Canton.VC.Credential` v2.0.0
+ * template, which implements the `Cip204.Standard.Credential`
+ * interface. The on-ledger shape is:
+ *
+ *   * `issuer`, `holder`, `admin` — three named parties per #204.
+ *   * `claims` — `Claims { values, validFrom, validUntil, meta }`
+ *     where `values` is a TextMap of namespace-prefixed (Java-style
+ *     reverse-DNS) credential attributes.
+ *   * `createdAt`, `expiresAt` — `Optional Time` on the view.
+ *   * `meta` — `TextMap Text` for non-business metadata.
  */
 
 /* ---------- Branded primitives ---------- */
@@ -29,39 +37,22 @@ export type Brand<T, B extends string> = T & { readonly [brand]: B };
 
 /**
  * Canton party identifier. Format: `<Label>::<Fingerprint>`.
- *
- * The label is an alphanumeric name (e.g. `Operator`) and the
- * fingerprint is a hex SHA-256 prefixed with the Canton protocol tag
- * (`1220` for the current format). The client exposes this as an
- * opaque string to route handlers: the only valid way to construct
- * one is through `parsePartyId()` or `buildPartyId()` in `party.ts`.
  */
 export type PartyId = Brand<string, 'PartyId'>;
 
 /**
  * Canton contract identifier. Format is participant-specific; in
- * practice it is a long hex string (~200+ chars) that uniquely
- * identifies an active contract on the ledger. We never parse its
- * internal structure — we only forward the opaque value to the
- * participant on exercise / disclosure calls.
+ * practice it is a long hex string (~200+ chars).
  */
 export type ContractId = Brand<string, 'ContractId'>;
 
 /**
  * Canton template identifier. Format: `#<package-name>:<Module>:<Template>`.
- *
- * Canton 3.4+ mandates the package-name form (package-id references
- * are discontinued). The `#` prefix is what distinguishes this from a
- * raw module path. Stored as `canton_template_id` in the DB.
  */
 export type TemplateId = Brand<string, 'TemplateId'>;
 
 /**
- * Canton command identifier. A short opaque string we generate per
- * submit-and-wait call. Bounded to `maxCommandIdLength` to keep
- * participant logs tidy. Uniqueness is a soft guarantee (timestamp +
- * random suffix) and the participant will deduplicate within a short
- * window if we somehow collide.
+ * Canton command identifier.
  */
 export type CommandId = Brand<string, 'CommandId'>;
 
@@ -73,299 +64,176 @@ export type LedgerOffset = Brand<string, 'LedgerOffset'>;
 
 /**
  * Transaction / update identifier returned by a successful submit.
- * Opaque to us; we stash it so operators can correlate an audit
- * line with the Canton transaction log on the validator side.
  */
 export type UpdateId = Brand<string, 'UpdateId'>;
 
-/* ---------- Daml-side enums ---------- */
+/* ---------- CIP #204 core data shapes ---------- */
 
 /**
- * Daml `ValidatorType` enum variants. Note the `Validator` suffix —
- * the Daml constructors include it so the payload must serialize as
- * e.g. `"DiditValidator"` when sent into a `CreateCommand`. Mirrors
- * the DAML `ValidatorType` data constructor set 1:1.
+ * CIP #204 `Metadata` — a free-form `TextMap Text` for namespace-
+ * prefixed key/value pairs that do not carry business meaning. Carried
+ * on `Claims.meta` and `CredentialView.meta`.
  *
- * DB layer uses the lowercase stripped form (see `Validator`);
- * the mapping lives in `payloadToMeta` / `metaToPayload` inside
- * `query.ts`.
- */
-export type DamlValidatorType =
-  | 'DiditValidator'
-  | 'OnfidoValidator'
-  | 'PersonaValidator'
-  | 'SumsubValidator'
-  | 'VeriffValidator'
-  | 'Au10tixValidator'
-  | 'JumioValidator'
-  | 'ZkValidator'
-  | 'Generic';
-
-/**
- * Daml `KYCStatus` enum variants. Capitalized to match the Daml
- * constructors. The DB enum uses the lowercase form.
- */
-export type DamlCredentialStatus = 'Pending' | 'Active' | 'Revoked' | 'Expired';
-
-/**
- * Daml `KYCLevel` enum variants. Capitalized to match the Daml
- * constructors. The DB enum uses the lowercase form.
+ * CIP #204 §"Namespacing" reserves the `cip-<nr>/` prefix for keys
+ * defined by the standard itself; application-extension keys MUST use
+ * Java-style reverse-DNS (e.g. `com.example/role`). Enforcement is a
+ * wire-format concern handled at the application layer — the SDK
+ * accepts any string key.
  *
- * the predecessor template version collapsed the level vocabulary from
- * {Basic, Standard, Enhanced} → {Basic, Enhanced}. The intermediate
- * "Standard" tier was redundant: address verification is the only
- * thing that distinguished Standard from Basic, and the on-chain
- * shape now folds that into `Enhanced` so a single `addressVerified`
- * boolean carries the same signal without a tri-valued enum the
- * `ensure` clause has to police.
+ * Encoded on the wire as a JSON object with string keys/values.
  */
-export type DamlKycLevel = 'Basic' | 'Enhanced';
+export type Metadata = Readonly<Record<string, string>>;
 
 /**
- * DB-side KYC level enum (lowercase). Matches `kyc_level` pgEnum.
- */
-export type KycLevel = 'basic' | 'enhanced';
-
-/**
- * DB-side credential status enum (lowercase). Matches
- * `credential_status` pgEnum.
- */
-export type CredentialStatus = 'pending' | 'active' | 'revoked' | 'expired';
-
-/**
- * DB-side validator enum (lowercase). Matches `credential_validator`
- * pgEnum.
- */
-export type Validator =
-  | 'didit'
-  | 'onfido'
-  | 'persona'
-  | 'sumsub'
-  | 'veriff'
-  | 'au10tix'
-  | 'jumio'
-  | 'zk'
-  | 'generic';
-
-/**
- * Canonical network tag. Matches `canonical_network` pgEnum and the
- * Canton config `network` field.
- */
-export type CanonicalNetwork = 'mainnet' | 'devnet';
-
-/* ---------- Daml ↔ DB enum mappings ---------- */
-
-/**
- * Daml capitalized status → DB lowercase status. Total — every Daml
- * status has a DB counterpart.
- */
-export const DAML_TO_DB_STATUS: Readonly<Record<DamlCredentialStatus, CredentialStatus>> =
-  Object.freeze({
-    Pending: 'pending',
-    Active: 'active',
-    Revoked: 'revoked',
-    Expired: 'expired',
-  });
-
-/**
- * DB lowercase status → Daml capitalized status. Inverse of
- * `DAML_TO_DB_STATUS`. Used when we build a `CreateCommand` from a
- * DB-side record.
- */
-export const DB_TO_DAML_STATUS: Readonly<Record<CredentialStatus, DamlCredentialStatus>> =
-  Object.freeze({
-    pending: 'Pending',
-    active: 'Active',
-    revoked: 'Revoked',
-    expired: 'Expired',
-  });
-
-/**
- * Daml level → DB level.
- */
-export const DAML_TO_DB_LEVEL: Readonly<Record<DamlKycLevel, KycLevel>> = Object.freeze({
-  Basic: 'basic',
-  Enhanced: 'enhanced',
-});
-
-/**
- * DB level → Daml level.
- */
-export const DB_TO_DAML_LEVEL: Readonly<Record<KycLevel, DamlKycLevel>> = Object.freeze({
-  basic: 'Basic',
-  enhanced: 'Enhanced',
-});
-
-/**
- * Daml validator constructor → DB validator enum.
- */
-export const DAML_TO_DB_VALIDATOR: Readonly<Record<DamlValidatorType, Validator>> = Object.freeze({
-  DiditValidator: 'didit',
-  OnfidoValidator: 'onfido',
-  PersonaValidator: 'persona',
-  SumsubValidator: 'sumsub',
-  VeriffValidator: 'veriff',
-  Au10tixValidator: 'au10tix',
-  JumioValidator: 'jumio',
-  ZkValidator: 'zk',
-  Generic: 'generic',
-});
-
-/**
- * DB validator → Daml constructor.
- */
-export const DB_TO_DAML_VALIDATOR: Readonly<Record<Validator, DamlValidatorType>> = Object.freeze({
-  didit: 'DiditValidator',
-  onfido: 'OnfidoValidator',
-  persona: 'PersonaValidator',
-  sumsub: 'SumsubValidator',
-  veriff: 'VeriffValidator',
-  au10tix: 'Au10tixValidator',
-  jumio: 'JumioValidator',
-  zk: 'ZkValidator',
-  generic: 'Generic',
-});
-
-/* ---------- Payload types ---------- */
-
-/**
- * `Canton.VC.Credential` on-ledger payload. Matches the template
- * declaration in `daml/canton-vc-credential/daml/Canton/VC/Credential.daml`.
+ * CIP #204 `Claims` — the credential's business payload.
  *
- * `validUntil` is an ISO 8601 timestamp (`YYYY-MM-DDTHH:MM:SS[.sss]Z`)
- * — the on-ledger representation uses a Daml `Time`, which Canton
- * serializes as a full timestamp string in JSON. The route layer
- * converts between this and the `timestamptz` column.
- *
- * `humanScore` is a Daml `Int`, which Canton serializes as a JSON
- * number. We clamp it to 0..100 in the command builder.
- *
- * The three `*Verified` flags are Daml `Bool` — true/false in JSON,
- * converted to `integer 0|1` in the DB row (the schema uses `integer`
- * for atomic counters).
+ *   * `values` — TextMap of `<namespace>/<property>` → text. Numeric
+ *     and boolean claims are text-encoded (`"92"`, `"true"`) per
+ *     spec. Consumers decode at the namespace boundary.
+ *   * `validFrom` / `validUntil` — Optional Time (`string | null` on
+ *     the wire) for credentials that have an explicit validity
+ *     window.
+ *   * `meta` — free-form Metadata.
  */
-export interface CantonCredentialPayload {
-  readonly operator: PartyId;
-  readonly user: PartyId;
-  /**
-   * Firm-facing user identifier the credential is bound to at mint
-   * time. Added in the predecessor template version so consuming firms can
-   * verify a credential is "for the user I expect" by comparing the
-   * `userRef` in the decoded blob to their own internal record. The
-   * template `ensure` clause rejects an empty string so a misconfigured
-   * worker cannot mint a credential without a binding.
-   */
-  readonly userRef: string;
-  readonly proofHash: string;
-  readonly status: DamlCredentialStatus;
-  readonly level: DamlKycLevel;
-  readonly validUntil: string; // ISO 8601 timestamp `YYYY-MM-DDTHH:MM:SSZ`
-  readonly network: string;
-  readonly humanScore: number;
-  readonly validator: DamlValidatorType;
-  readonly identityVerified: boolean;
-  readonly livenessVerified: boolean;
-  readonly addressVerified: boolean;
-  /**
-   * v1.1.0 addition: content-addressed id of the `ProofSchemaSpec` that
-   * the issuer used to compute `proofHash`. `null` only for legacy
-   * v1.0.0 contracts (which were minted before audit-replay was
-   * standardised); v1.1.0+ mints always carry a non-empty schema id.
-   */
-  readonly proofSchemaId: string | null;
+export interface Claims {
+  readonly values: Readonly<Record<string, string>>;
+  readonly validFrom: string | null;
+  readonly validUntil: string | null;
+  readonly meta: Metadata;
 }
 
 /**
- * Arguments accepted by `createCredential()`. This is the shape the
- * route handler passes in; the client translates it into a
- * `CreateCommand` body internally.
+ * CIP #204 `CredentialView` — the standard view returned by
+ * `Credential_PublicFetch` and the `viewtype` of the `Credential`
+ * interface. Identical to the on-ledger template payload (the
+ * interface view is a 1:1 projection of the template fields).
  *
- * All fields are validated at the schema boundary — nothing here
- * comes directly from the HTTP body of a firm request.
+ * Note: lifecycle semantics ("active vs. expired vs. revoked") are
+ * implementer-defined under CIP #204. The standard view itself has
+ * no `isActive` flag — applications evaluate lifecycle from
+ * `expiresAt` and any status claims they choose to encode under
+ * their own reverse-DNS namespace.
+ */
+export interface CredentialView {
+  readonly admin: PartyId;
+  readonly issuer: PartyId;
+  readonly holder: PartyId;
+  readonly claims: Claims;
+  readonly createdAt: string | null;
+  readonly expiresAt: string | null;
+  readonly meta: Metadata;
+}
+
+/**
+ * On-ledger payload of the `Canton.VC.Credential` template. Identical
+ * to `CredentialView` since the template's `interface instance` view
+ * mirrors the storage fields 1:1.
+ */
+export type CantonCredentialPayload = CredentialView;
+
+/* ---------- Input / output types for the SDK methods ---------- */
+
+/**
+ * Arguments accepted by `createCredential()`.
+ *
+ * Generic by design — application code (KYC issuers, supply-chain
+ * issuers, attestation issuers, …) assembles the `Claims` map with
+ * its own reverse-DNS namespace and passes it through. The SDK
+ * does not interpret claim contents.
+ *
+ * Joint signatory: the template is signed by both `issuerParty` and
+ * `holderParty` (CIP #204 mandate). The SDK submits with both
+ * parties in the `actAs` list — both must be hosted on the
+ * submitting participant. Cross-participant flows require a
+ * propose-accept layer above this API.
  */
 export interface CreateCredentialInput {
-  readonly userParty: PartyId;
   /**
-   * Firm-facing user identifier — opaque to Canton. The worker passes
-   * the customer UUID for self-service mints and the firm-supplied
-   * `userRef` for B2B mints. the template stamps this onto
-   * the on-chain payload so verifying firms can match the decoded
-   * blob to their own record without trusting the issuer's sidecar JSON.
-   * Must be a non-empty string — the template's `ensure` clause
-   * rejects blanks at mint time.
+   * The issuer party. Co-signs the credential alongside the holder
+   * per CIP #204. In a custodian model, this is the operator party
+   * the SDK was configured with.
    */
-  readonly userRef: string;
-  readonly proofHash: string;
+  readonly issuerParty: PartyId;
   /**
-   * Content-addressed id of the {@link ProofSchemaSpec} that produced
-   * `proofHash`. Required on every v1.1.0+ mint — the DAML ensure
-   * clause rejects an empty/missing value. The schema spec itself
-   * lives in the public registry under `docs/proof-schemas/<id>.json`.
+   * The holder party. Co-signs the credential alongside the issuer.
    */
-  readonly proofSchemaId: string;
-  readonly status: CredentialStatus;
-  readonly level: KycLevel;
-  readonly validUntil: string; // ISO 8601 timestamp `YYYY-MM-DDTHH:MM:SSZ`
-  readonly humanScore: number;
-  readonly validator: Validator;
-  readonly identityVerified: boolean;
-  readonly livenessVerified: boolean;
-  readonly addressVerified: boolean;
+  readonly holderParty: PartyId;
+  /**
+   * The admin (disclosure authority) party. In a custodian deployment
+   * this typically equals `issuerParty`; in delegated-issuance setups
+   * it may differ.
+   */
+  readonly adminParty: PartyId;
+  /**
+   * The credential's business payload — claim values + validity
+   * window + metadata. Keys MUST use reverse-DNS namespacing per
+   * CIP #204. The SDK does not validate semantic content.
+   */
+  readonly claims: Claims;
+  /**
+   * Optional template-level created-at timestamp (ISO 8601 with Z
+   * suffix). Distinct from `claims.validFrom` — the former is the
+   * mint time, the latter is the validity-window start.
+   */
+  readonly createdAt?: string;
+  /**
+   * Optional template-level expiry timestamp (ISO 8601 with Z
+   * suffix). Distinct from `claims.validUntil` — applications may
+   * choose to set both or only the in-claims one.
+   */
+  readonly expiresAt?: string;
+  /**
+   * Template-level non-business metadata. Independent of
+   * `claims.meta`.
+   */
+  readonly meta?: Metadata;
 }
 
 /**
- * Result of a successful `createCredential()` call. `updateId` lets
- * callers correlate with the Canton transaction log; `recordTime` is
- * stamped by the participant for audit ordering.
+ * Result of a successful `createCredential()` call.
  */
 export interface CreateCredentialResult {
   readonly contractId: ContractId;
   readonly commandId: CommandId;
   readonly updateId: UpdateId;
-  readonly recordTime: string; // ISO 8601 datetime
+  readonly recordTime: string;
   readonly completionOffset: LedgerOffset;
 }
 
 /**
- * Arguments accepted by `verifyCredential()`. The `Verify` choice is
- * `nonconsuming`, so the contract stays live after the exercise.
+ * Arguments accepted by `verifyCredential()`. Under CIP #204 the
+ * standard choice is `Credential_PublicFetch`:
  *
- * `fetcher` is the party submitting the exercise — under the canton-vc credential
- * flexible-controller template it is the choice's `controller`, so
- * the participant network identity layer (party allocation +
- * namespace fingerprint) is the only thing required to authorize the
- * call. The disclosed contract blob is attached separately by the
- * Canton client; Canton's contract-authentication step rejects a
- * tampered blob before the choice body runs.
+ *     nonconsuming choice Credential_PublicFetch : CredentialView
+ *       with
+ *         expectedAdmin : Party
+ *         actor         : Party
+ *       controller actor
+ *
+ *   * `actor` is the verifier's party (controller). The participant
+ *     authorises the call via the actor's namespace fingerprint.
+ *   * `expectedAdmin` is the admin party the verifier expects. The
+ *     implementer MUST `assertMsg expectedAdmin == (view this).admin`
+ *     so a substituted credential is rejected at the choice body.
+ *   * `disclosedBlobBase64` is attached when the verifier's
+ *     participant does not have the contract in its local ACS
+ *     (every cross-participant verify path). Canton authenticates
+ *     the blob against the sequencer signature before the choice
+ *     body runs.
  */
 export interface VerifyCredentialInput {
   readonly contractId: ContractId;
-  readonly fetcher: PartyId;
-  /**
-   * Optional disclosed-contract blob (base64url) when the verifier
-   * does not have the contract in its local ACS — i.e. cross-firm
-   * verification where the participant has never observed the mint.
-   * When provided it is attached as a `DisclosedContract` on the
-   * command. When omitted (operator-side verify, ACS already holds
-   * it) the participant resolves the contract from local state.
-   */
+  readonly actor: PartyId;
+  readonly expectedAdmin: PartyId;
   readonly disclosedBlobBase64?: string;
 }
 
 /**
- * Result of a `verifyCredential()` call. the Daml `Verify` widening of
- * `Verify` choice from `Bool` to a full `CredentialView` struct so
- * the firm reads every credential field from the choice result
- * instead of trusting a plaintext sidecar JSON. The participant runs
- * the choice body with chain time, so `isActive` is server-evaluated
- * (status == "Active" && now <= validUntil) — firms do not have to
- * compare `validUntil` against their own clock.
- *
- * The `verified` boolean stays as a convenience: it mirrors `view.isActive`
- * so legacy call sites that just want a yes/no answer keep working.
+ * Result of a `verifyCredential()` call. `view` is the
+ * `CredentialView` returned by the choice; lifecycle interpretation
+ * (active vs. expired vs. revoked) is up to the caller.
  */
 export interface VerifyCredentialResult {
-  readonly verified: boolean;
   readonly view: CredentialView;
   readonly contractId: ContractId;
   readonly commandId: CommandId;
@@ -374,52 +242,24 @@ export interface VerifyCredentialResult {
 }
 
 /**
- * Mirror of the Daml `CredentialView` record returned by the
- * `Verify` choice. Fields use the wire shape (lowercase enum
- * variants for level/status, capitalized constructor for validator —
- * matches Daml-LF JSON encoding) so the Canton client forwards the
- * server's answer verbatim and the route layer maps to its own
- * shape only at the API boundary.
- */
-export interface CredentialView {
-  readonly userRef: string;
-  readonly proofHash: string;
-  readonly status: DamlCredentialStatus;
-  readonly level: DamlKycLevel;
-  readonly validUntil: string; // ISO 8601 timestamp `YYYY-MM-DDTHH:MM:SSZ`
-  readonly network: string;
-  readonly humanScore: number;
-  readonly validator: DamlValidatorType;
-  readonly identityVerified: boolean;
-  readonly livenessVerified: boolean;
-  readonly addressVerified: boolean;
-  readonly isActive: boolean;
-  /**
-   * v1.1.0 addition: content-addressed schema id used to compute
-   * `proofHash`. `null` for legacy v1.0.0 credentials (treated as
-   * audit-incomplete by downstream verifiers).
-   */
-  readonly proofSchemaId: string | null;
-}
-
-/**
- * Arguments accepted by `revokeCredential()`. `RevokeCredential` is a
- * consuming choice — the contract is archived on success.
- *
- * `nftContractId` is the optional bound `KycNFT` contract id; when
- * present, the choice body atomically archives the NFT in the same
- * Canton transaction (cascade burn). NULL for Basic-level credentials
- * which never had an NFT minted under the v1.1.0 ensure clause
- * `level == "Enhanced"`.
+ * Arguments accepted by `revokeCredential()`. `RevokeCredential` is
+ * an implementer-side choice on `Canton.VC.Credential` (NOT part of
+ * the CIP #204 standard surface) — issuer compliance revoke.
+ * Cascade-burns the bound NFT atomically when present.
  */
 export interface RevokeCredentialInput {
   readonly contractId: ContractId;
   readonly nftContractId?: ContractId;
+  /**
+   * Recorded on the revoked sibling's meta under the
+   * `<implementer-namespace>/revoke.reason` key. Free-form string;
+   * the template ensures it is non-empty.
+   */
+  readonly reason: string;
 }
 
 /**
- * Result of a `revokeCredential()` call. No return value beyond the
- * completion acknowledgement.
+ * Result of a `revokeCredential()` call.
  */
 export interface RevokeCredentialResult {
   readonly contractId: ContractId;
@@ -429,10 +269,7 @@ export interface RevokeCredentialResult {
 }
 
 /**
- * Active contract returned by an ACS query. `createdEventBlob` is
- * only populated when the query asked for disclosure — it is the
- * serialized event the firm needs to verify the credential against
- * their own participant (`explicit contract disclosure`).
+ * Active contract returned by an ACS query.
  */
 export interface ActiveContract {
   readonly contractId: ContractId;
@@ -440,12 +277,11 @@ export interface ActiveContract {
   readonly payload: CantonCredentialPayload;
   readonly signatories: readonly PartyId[];
   readonly observers: readonly PartyId[];
-  readonly createdEventBlob: string | null; // base64 when requested, null otherwise
+  readonly createdEventBlob: string | null;
 }
 
 /**
- * Result of a disclosure-style query: a single active contract plus
- * the blob ready to be forwarded to a firm participant.
+ * Result of a disclosure-style query.
  */
 export interface DisclosureBundle {
   readonly contract: ActiveContract;
@@ -453,23 +289,36 @@ export interface DisclosureBundle {
   readonly fetchedAt: Date;
 }
 
-/* ---------- KycNFT (v1.1.0) ---------- */
+/* ---------- KycNFT (optional showcase companion template) ---------- */
 
 /**
- * Arguments accepted by `createKycNft()`. The NFT is minted only for
- * Enhanced-level credentials — the Daml ensure clause rejects any
- * `level != "Enhanced"` at the chain boundary.
+ * Arguments accepted by `createKycNft()`. The NFT is a soulbound
+ * showcase token bound to a `Canton.VC.Credential` contract id. It
+ * is NOT a CIP #204 surface — the standard interface does not require
+ * a companion artefact. The template lives in the same DAML package
+ * for convenience; consumers that do not need it can ignore the
+ * helper.
  *
- * `image` is an inline `data:image/svg+xml;base64,…` URI rendered on
- * the customer dashboard via `<img>` (browser sandbox + CSP). The
- * worker pre-sanitizes the SVG with DOMPurify before encoding.
+ * The template enforces its own preconditions at the chain boundary
+ * (`level` value, non-empty fields). The SDK forwards string values
+ * verbatim — what counts as a valid `level` is template-defined,
+ * not SDK-defined.
  */
 export interface CreateKycNftInput {
-  readonly customerParty: PartyId;
+  readonly holderParty: PartyId;
   readonly boundCredentialId: ContractId;
-  readonly level: 'enhanced';
+  /**
+   * The credential level being attested. The DAML template ensure
+   * clause restricts the accepted set; the SDK treats it as opaque
+   * text.
+   */
+  readonly level: string;
   readonly serialNumber: string;
   readonly displayName: string;
+  /**
+   * Inline `data:image/svg+xml;base64,…` URI. Consumers MUST
+   * sanitise the SVG before encoding.
+   */
   readonly image: string;
 }
 
@@ -486,15 +335,86 @@ export interface CreateKycNftResult {
 
 /**
  * On-ledger payload of `Canton.VC.Credential.KycNFT`. Mirrors the
- * Daml template fields 1:1.
+ * DAML template fields 1:1.
  */
 export interface KycNftPayload {
-  readonly operator: PartyId;
+  readonly issuer: PartyId;
   readonly customer: PartyId;
   readonly boundCredentialId: ContractId;
   readonly issuedAt: string;
-  readonly level: 'Enhanced';
+  readonly level: string;
   readonly serialNumber: string;
   readonly displayName: string;
   readonly image: string;
+}
+
+/* ---------- Generic Claims accessors ---------- */
+
+/**
+ * Read a claim from a `Claims` value. Returns `undefined` when the
+ * key is missing. Consumers compose their own namespaced wrappers
+ * (e.g. `getKycLevel(view) = getClaim(view.claims, 'com.example/level')`)
+ * — the SDK does not opine on any specific namespace.
+ */
+export function getClaim(claims: Claims, key: string): string | undefined {
+  return claims.values[key];
+}
+
+/**
+ * Read a boolean-encoded claim. Per CIP #204 all claim values are
+ * text-encoded; `"true"` → `true`, `"false"` → `false`, anything
+ * else → `undefined`.
+ */
+export function getBoolClaim(claims: Claims, key: string): boolean | undefined {
+  const raw = claims.values[key];
+  if (raw === 'true') return true;
+  if (raw === 'false') return false;
+  return undefined;
+}
+
+/**
+ * Read an integer-encoded claim. Returns `undefined` for missing or
+ * non-numeric values.
+ */
+export function getIntClaim(claims: Claims, key: string): number | undefined {
+  const raw = claims.values[key];
+  if (raw === undefined) return undefined;
+  if (!/^-?\d+$/.test(raw)) return undefined;
+  return Number(raw);
+}
+
+/**
+ * Check whether the credential is within its validity window. CIP
+ * #204 does not define a "status" enum — lifecycle interpretation
+ * (revoked vs. expired vs. active) is the implementer's choice. This
+ * helper only checks the validity-window timestamps:
+ *
+ *   * `claims.validFrom` (if set) ≤ `now`
+ *   * `claims.validUntil` (if set) ≥ `now`
+ *   * `expiresAt` (if set) ≥ `now`
+ *
+ * Returns `true` when all set timestamps allow the credential, OR
+ * when none are set (no window declared). Callers needing a
+ * revocation check MUST consult their own status claim or query
+ * the contract's activity state separately.
+ */
+export function isWithinValidityWindow(view: CredentialView, now: Date = new Date()): boolean {
+  const nowMs = now.getTime();
+  const isBeforeUpper = (iso: string | null): boolean => {
+    if (iso === null) return true;
+    const t = new Date(iso).getTime();
+    if (Number.isNaN(t)) return false;
+    return nowMs <= t;
+  };
+  const isAfterLower = (iso: string | null): boolean => {
+    if (iso === null) return true;
+    const t = new Date(iso).getTime();
+    if (Number.isNaN(t)) return false;
+    return nowMs >= t;
+  };
+  return (
+    isAfterLower(view.claims.validFrom) &&
+    isBeforeUpper(view.claims.validUntil) &&
+    isBeforeUpper(view.expiresAt)
+  );
 }

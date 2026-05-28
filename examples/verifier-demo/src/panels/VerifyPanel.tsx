@@ -32,13 +32,18 @@ export function VerifyPanel({ autoFill }: VerifyPanelProps) {
     setView(null);
     try {
       const canton = getMockCanton();
-      const fetcher = (await canton.allocateParty('VerifierFirm')) as PartyId;
+      const actor = (await canton.allocateParty('VerifierFirm')) as PartyId;
+      // Look up the credential to derive the admin (the issuer in the
+      // mock's custodian setup). Real verifiers fetch the issuer's
+      // canonical admin party out-of-band (OIDC discovery, trust list).
+      const bundle = await canton.fetchDisclosureBundleByContractId(contractId as ContractId);
+      const expectedAdmin = (bundle?.contract.payload as { admin?: string })?.admin ?? '';
       const result = await verifyDisclosure(
         {
           canton_vc_credential_blob: blob,
           canton_vc_contract_id: contractId as ContractId,
         },
-        { canton: asCantonClient(canton), fetcher },
+        { canton: asCantonClient(canton), actor, expectedAdmin },
       );
       setView(result);
     } catch (err: unknown) {

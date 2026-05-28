@@ -1,310 +1,289 @@
 /**
- * Tests for `./src/types`.
+ * Tests for `./src/types` — v2.0.0 (CIP #204 alignment).
  *
- * `types.ts` exports no runtime helpers beyond the six
- * `DAML_TO_DB_*` / `DB_TO_DAML_*` mapping tables. These tests pin:
+ * `types.ts` exports:
  *
- *   * Every mapping is a frozen object (cannot be mutated at runtime).
- *   * Every enum variant in the Daml-side type has a DB counterpart
- *     and vice versa — no mapping is silently missing.
- *   * `DAML_TO_DB_*` and `DB_TO_DAML_*` round-trip cleanly.
- *   * The keys of each pair are exactly the full enum union — tested
- *     via compile-time exhaustiveness.
- *   * The TypeScript brand types ship as plain strings at runtime —
- *     no structural hidden fields leak into JSON.
+ *   * Branded identifier types (PartyId, ContractId, …)
+ *   * The CIP #204 data shapes (`Claims`, `CredentialView`, `Metadata`)
+ *   * Input / result types for the SDK methods
+ *   * Generic claim accessors (`getClaim`, `getBoolClaim`, `getIntClaim`)
+ *   * `isWithinValidityWindow` lifecycle helper
+ *
+ * Removed in v2.0.0 (vs. v1.1.0): the DB-side enum types
+ * (`KycLevel`, `CredentialStatus`, `Validator`, `CanonicalNetwork`)
+ * and the `DAML_TO_DB_*` / `DB_TO_DAML_*` mapping tables — those
+ * are application-layer concerns, not SDK concerns.
  */
 
 import { describe, expect, expectTypeOf, it } from 'vitest';
 
 import type {
   Brand,
-  CanonicalNetwork,
   CantonCredentialPayload,
+  Claims,
   CommandId,
   ContractId,
   CreateCredentialInput,
   CreateCredentialResult,
-  CredentialStatus,
-  DamlCredentialStatus,
-  DamlKycLevel,
-  DamlValidatorType,
-  KycLevel,
+  CredentialView,
   LedgerOffset,
+  Metadata,
   PartyId,
   TemplateId,
   UpdateId,
-  Validator,
   VerifyCredentialResult,
 } from '../src';
-import {
-  DAML_TO_DB_LEVEL,
-  DAML_TO_DB_STATUS,
-  DAML_TO_DB_VALIDATOR,
-  DB_TO_DAML_LEVEL,
-  DB_TO_DAML_STATUS,
-  DB_TO_DAML_VALIDATOR,
-} from '../src';
+import { getBoolClaim, getClaim, getIntClaim, isWithinValidityWindow } from '../src';
 
-describe('DAML_TO_DB_STATUS', () => {
-  it('is frozen', () => {
-    expect(Object.isFrozen(DAML_TO_DB_STATUS)).toBe(true);
+describe('Brand helper', () => {
+  it('is a string at runtime', () => {
+    const id = 'abcdef' as Brand<string, 'Test'>;
+    expect(typeof id).toBe('string');
+    expect(id).toBe('abcdef');
   });
 
-  it('maps every Daml status variant to the DB lowercase form', () => {
-    expect(DAML_TO_DB_STATUS.Pending).toBe('pending');
-    expect(DAML_TO_DB_STATUS.Active).toBe('active');
-    expect(DAML_TO_DB_STATUS.Revoked).toBe('revoked');
-    expect(DAML_TO_DB_STATUS.Expired).toBe('expired');
-  });
-
-  it('covers exactly the four DamlCredentialStatus keys', () => {
-    expect(Object.keys(DAML_TO_DB_STATUS).sort()).toEqual([
-      'Active',
-      'Expired',
-      'Pending',
-      'Revoked',
-    ]);
+  it('keeps PartyId, ContractId, CommandId distinct at compile time', () => {
+    expectTypeOf<PartyId>().not.toEqualTypeOf<ContractId>();
+    expectTypeOf<ContractId>().not.toEqualTypeOf<CommandId>();
+    expectTypeOf<CommandId>().not.toEqualTypeOf<TemplateId>();
+    expectTypeOf<TemplateId>().not.toEqualTypeOf<LedgerOffset>();
+    expectTypeOf<LedgerOffset>().not.toEqualTypeOf<UpdateId>();
   });
 });
 
-describe('DB_TO_DAML_STATUS', () => {
-  it('is frozen', () => {
-    expect(Object.isFrozen(DB_TO_DAML_STATUS)).toBe(true);
+describe('Claims data shape', () => {
+  it('accepts a TextMap of string→string values', () => {
+    const c: Claims = {
+      values: { 'com.example/level': 'Enhanced', 'com.example/score': '92' },
+      validFrom: null,
+      validUntil: null,
+      meta: {},
+    };
+    expect(c.values['com.example/level']).toBe('Enhanced');
   });
 
-  it('maps every DB status variant to the Daml capitalized form', () => {
-    expect(DB_TO_DAML_STATUS.pending).toBe('Pending');
-    expect(DB_TO_DAML_STATUS.active).toBe('Active');
-    expect(DB_TO_DAML_STATUS.revoked).toBe('Revoked');
-    expect(DB_TO_DAML_STATUS.expired).toBe('Expired');
-  });
-
-  it('round-trips Daml → DB → Daml', () => {
-    const allDaml: readonly DamlCredentialStatus[] = ['Pending', 'Active', 'Revoked', 'Expired'];
-    for (const status of allDaml) {
-      expect(DB_TO_DAML_STATUS[DAML_TO_DB_STATUS[status]]).toBe(status);
-    }
-  });
-
-  it('round-trips DB → Daml → DB', () => {
-    const allDb: readonly CredentialStatus[] = ['pending', 'active', 'revoked', 'expired'];
-    for (const status of allDb) {
-      expect(DAML_TO_DB_STATUS[DB_TO_DAML_STATUS[status]]).toBe(status);
-    }
+  it('encodes Optional Time fields as string-or-null', () => {
+    const c: Claims = {
+      values: { 'com.example/k': 'v' },
+      validFrom: '2026-04-11T00:00:00Z',
+      validUntil: '2027-04-11T00:00:00Z',
+      meta: {},
+    };
+    expect(c.validFrom).toBe('2026-04-11T00:00:00Z');
+    expect(c.validUntil).toBe('2027-04-11T00:00:00Z');
   });
 });
 
-describe('DAML_TO_DB_LEVEL / DB_TO_DAML_LEVEL', () => {
-  it('are both frozen', () => {
-    expect(Object.isFrozen(DAML_TO_DB_LEVEL)).toBe(true);
-    expect(Object.isFrozen(DB_TO_DAML_LEVEL)).toBe(true);
+describe('CredentialView data shape', () => {
+  it('is a 1:1 projection of the CIP #204 template payload', () => {
+    expectTypeOf<CredentialView>().toEqualTypeOf<CantonCredentialPayload>();
   });
 
-  it('maps each level variant in both directions', () => {
-    // Canton.VC.Credential collapsed the level enum to
-    // {Basic, Enhanced}. The intermediate Standard tier was retired
-    // in the same release.
-    expect(DAML_TO_DB_LEVEL.Basic).toBe('basic');
-    expect(DAML_TO_DB_LEVEL.Enhanced).toBe('enhanced');
-    expect(DB_TO_DAML_LEVEL.basic).toBe('Basic');
-    expect(DB_TO_DAML_LEVEL.enhanced).toBe('Enhanced');
-  });
-
-  it('round-trips both ways', () => {
-    const allDaml: readonly DamlKycLevel[] = ['Basic', 'Enhanced'];
-    for (const level of allDaml) {
-      expect(DB_TO_DAML_LEVEL[DAML_TO_DB_LEVEL[level]]).toBe(level);
-    }
-    const allDb: readonly KycLevel[] = ['basic', 'enhanced'];
-    for (const level of allDb) {
-      expect(DAML_TO_DB_LEVEL[DB_TO_DAML_LEVEL[level]]).toBe(level);
-    }
-  });
-
-  it('covers exactly the two level keys', () => {
-    expect(Object.keys(DAML_TO_DB_LEVEL).sort()).toEqual(['Basic', 'Enhanced']);
-    expect(Object.keys(DB_TO_DAML_LEVEL).sort()).toEqual(['basic', 'enhanced']);
+  it('carries admin, issuer, holder, claims, createdAt, expiresAt, meta', () => {
+    const v: CredentialView = {
+      admin: 'Admin::abc' as PartyId,
+      issuer: 'Issuer::abc' as PartyId,
+      holder: 'Holder::abc' as PartyId,
+      claims: {
+        values: { 'com.example/k': 'v' },
+        validFrom: null,
+        validUntil: null,
+        meta: {},
+      },
+      createdAt: null,
+      expiresAt: null,
+      meta: {},
+    };
+    expect(v.admin).toBe('Admin::abc');
   });
 });
 
-describe('DAML_TO_DB_VALIDATOR / DB_TO_DAML_VALIDATOR', () => {
-  it('are both frozen', () => {
-    expect(Object.isFrozen(DAML_TO_DB_VALIDATOR)).toBe(true);
-    expect(Object.isFrozen(DB_TO_DAML_VALIDATOR)).toBe(true);
-  });
-
-  it('maps each validator variant in both directions', () => {
-    expect(DAML_TO_DB_VALIDATOR.DiditValidator).toBe('didit');
-    expect(DAML_TO_DB_VALIDATOR.OnfidoValidator).toBe('onfido');
-    expect(DAML_TO_DB_VALIDATOR.PersonaValidator).toBe('persona');
-    expect(DAML_TO_DB_VALIDATOR.SumsubValidator).toBe('sumsub');
-    expect(DAML_TO_DB_VALIDATOR.VeriffValidator).toBe('veriff');
-    expect(DAML_TO_DB_VALIDATOR.Au10tixValidator).toBe('au10tix');
-    expect(DAML_TO_DB_VALIDATOR.JumioValidator).toBe('jumio');
-    expect(DAML_TO_DB_VALIDATOR.ZkValidator).toBe('zk');
-    expect(DAML_TO_DB_VALIDATOR.Generic).toBe('generic');
-    expect(DB_TO_DAML_VALIDATOR.didit).toBe('DiditValidator');
-    expect(DB_TO_DAML_VALIDATOR.sumsub).toBe('SumsubValidator');
-    expect(DB_TO_DAML_VALIDATOR.zk).toBe('ZkValidator');
-    expect(DB_TO_DAML_VALIDATOR.generic).toBe('Generic');
-  });
-
-  it('round-trips both ways', () => {
-    const allDaml: readonly DamlValidatorType[] = [
-      'DiditValidator',
-      'OnfidoValidator',
-      'PersonaValidator',
-      'SumsubValidator',
-      'VeriffValidator',
-      'Au10tixValidator',
-      'JumioValidator',
-      'ZkValidator',
-      'Generic',
-    ];
-    for (const v of allDaml) {
-      expect(DB_TO_DAML_VALIDATOR[DAML_TO_DB_VALIDATOR[v]]).toBe(v);
-    }
-    const allDb: readonly Validator[] = [
-      'didit',
-      'onfido',
-      'persona',
-      'sumsub',
-      'veriff',
-      'au10tix',
-      'jumio',
-      'zk',
-      'generic',
-    ];
-    for (const v of allDb) {
-      expect(DAML_TO_DB_VALIDATOR[DB_TO_DAML_VALIDATOR[v]]).toBe(v);
-    }
-  });
-
-  it('covers exactly the nine DAML ValidatorType constructors', () => {
-    expect(Object.keys(DAML_TO_DB_VALIDATOR).sort()).toEqual([
-      'Au10tixValidator',
-      'DiditValidator',
-      'Generic',
-      'JumioValidator',
-      'OnfidoValidator',
-      'PersonaValidator',
-      'SumsubValidator',
-      'VeriffValidator',
-      'ZkValidator',
-    ]);
-    expect(Object.keys(DB_TO_DAML_VALIDATOR).sort()).toEqual([
-      'au10tix',
-      'didit',
-      'generic',
-      'jumio',
-      'onfido',
-      'persona',
-      'sumsub',
-      'veriff',
-      'zk',
-    ]);
+describe('Metadata', () => {
+  it('is a free-form record of string→string', () => {
+    const m: Metadata = { 'com.example/foo': 'bar', 'com.example/baz': '123' };
+    expect(m['com.example/foo']).toBe('bar');
   });
 });
 
-describe('type-level shapes', () => {
-  it('PartyId, ContractId, TemplateId, CommandId, LedgerOffset, UpdateId are branded strings', () => {
-    expectTypeOf<PartyId>().toEqualTypeOf<Brand<string, 'PartyId'>>();
-    expectTypeOf<ContractId>().toEqualTypeOf<Brand<string, 'ContractId'>>();
-    expectTypeOf<TemplateId>().toEqualTypeOf<Brand<string, 'TemplateId'>>();
-    expectTypeOf<CommandId>().toEqualTypeOf<Brand<string, 'CommandId'>>();
-    expectTypeOf<LedgerOffset>().toEqualTypeOf<Brand<string, 'LedgerOffset'>>();
-    expectTypeOf<UpdateId>().toEqualTypeOf<Brand<string, 'UpdateId'>>();
-  });
-
-  it('DamlCredentialStatus / CredentialStatus unions are disjoint', () => {
-    expectTypeOf<DamlCredentialStatus>().toEqualTypeOf<
-      'Pending' | 'Active' | 'Revoked' | 'Expired'
-    >();
-    expectTypeOf<CredentialStatus>().toEqualTypeOf<'pending' | 'active' | 'revoked' | 'expired'>();
-  });
-
-  it('DamlKycLevel / KycLevel unions match', () => {
-    expectTypeOf<DamlKycLevel>().toEqualTypeOf<'Basic' | 'Enhanced'>();
-    expectTypeOf<KycLevel>().toEqualTypeOf<'basic' | 'enhanced'>();
-  });
-
-  it('DamlValidatorType / Validator unions match the DAML ValidatorType enum', () => {
-    expectTypeOf<DamlValidatorType>().toEqualTypeOf<
-      | 'DiditValidator'
-      | 'OnfidoValidator'
-      | 'PersonaValidator'
-      | 'SumsubValidator'
-      | 'VeriffValidator'
-      | 'Au10tixValidator'
-      | 'JumioValidator'
-      | 'ZkValidator'
-      | 'Generic'
-    >();
-    expectTypeOf<Validator>().toEqualTypeOf<
-      | 'didit'
-      | 'onfido'
-      | 'persona'
-      | 'sumsub'
-      | 'veriff'
-      | 'au10tix'
-      | 'jumio'
-      | 'zk'
-      | 'generic'
-    >();
-  });
-
-  it('CanonicalNetwork is the two-tag union', () => {
-    expectTypeOf<CanonicalNetwork>().toEqualTypeOf<'mainnet' | 'devnet'>();
-  });
-
-  it('CantonCredentialPayload has the expected 13 fields', () => {
-    type Keys = keyof CantonCredentialPayload;
-    // `userRef` added to the on-chain payload.
-    type Expected =
-      | 'operator'
-      | 'user'
-      | 'userRef'
-      | 'proofHash'
-      | 'status'
-      | 'level'
-      | 'validUntil'
-      | 'network'
-      | 'humanScore'
-      | 'validator'
-      | 'identityVerified'
-      | 'livenessVerified'
-      | 'addressVerified'
-      | 'proofSchemaId';
-    expectTypeOf<Keys>().toEqualTypeOf<Expected>();
-  });
-
-  it('CreateCredentialInput uses DB-side enums (lowercase)', () => {
-    expectTypeOf<CreateCredentialInput['status']>().toEqualTypeOf<CredentialStatus>();
-    expectTypeOf<CreateCredentialInput['level']>().toEqualTypeOf<KycLevel>();
-    expectTypeOf<CreateCredentialInput['validator']>().toEqualTypeOf<Validator>();
-  });
-
-  it('CreateCredentialResult returns branded identifiers', () => {
-    expectTypeOf<CreateCredentialResult['contractId']>().toEqualTypeOf<ContractId>();
-    expectTypeOf<CreateCredentialResult['commandId']>().toEqualTypeOf<CommandId>();
-    expectTypeOf<CreateCredentialResult['updateId']>().toEqualTypeOf<UpdateId>();
-    expectTypeOf<CreateCredentialResult['completionOffset']>().toEqualTypeOf<LedgerOffset>();
-  });
-
-  it('VerifyCredentialResult.verified is a plain boolean', () => {
-    expectTypeOf<VerifyCredentialResult['verified']>().toEqualTypeOf<boolean>();
+describe('CreateCredentialInput shape', () => {
+  it('carries issuerParty, holderParty, adminParty, claims', () => {
+    const input: CreateCredentialInput = {
+      issuerParty: 'Issuer::abc' as PartyId,
+      holderParty: 'Holder::abc' as PartyId,
+      adminParty: 'Admin::abc' as PartyId,
+      claims: {
+        values: { 'com.example/k': 'v' },
+        validFrom: null,
+        validUntil: null,
+        meta: {},
+      },
+    };
+    expect(input.claims.values['com.example/k']).toBe('v');
   });
 });
 
-describe('branded identifiers at runtime', () => {
-  it('serialize as plain strings (no hidden brand field)', () => {
-    // Branded types are runtime strings. We can't actually build one
-    // without `asPartyIdUnchecked`, but we can verify the shape via
-    // a cast and confirm JSON serialization is the bare string.
-    const partyId = 'Operator::1220abcd' as PartyId;
-    const contractId = '00deadbeef' as ContractId;
-    expect(JSON.stringify({ partyId, contractId })).toBe(
-      '{"partyId":"Operator::1220abcd","contractId":"00deadbeef"}',
+describe('CreateCredentialResult shape', () => {
+  it('does not leak hidden fields from branded types', () => {
+    const result: CreateCredentialResult = {
+      contractId: 'cid' as ContractId,
+      commandId: 'cmd' as CommandId,
+      updateId: 'upd' as UpdateId,
+      recordTime: '2026-04-11T18:00:00.000Z',
+      completionOffset: '00000001' as LedgerOffset,
+    };
+    expect(JSON.parse(JSON.stringify(result))).toEqual({
+      contractId: 'cid',
+      commandId: 'cmd',
+      updateId: 'upd',
+      recordTime: '2026-04-11T18:00:00.000Z',
+      completionOffset: '00000001',
+    });
+  });
+});
+
+describe('VerifyCredentialResult shape', () => {
+  it('exposes the view but no derived `verified` boolean', () => {
+    expectTypeOf<VerifyCredentialResult>().toMatchTypeOf<{
+      view: CredentialView;
+      contractId: ContractId;
+    }>();
+    // The result type intentionally has no `verified` field — lifecycle
+    // interpretation is up to the caller.
+    expectTypeOf<VerifyCredentialResult>().not.toMatchTypeOf<{ verified: boolean }>();
+  });
+});
+
+describe('getClaim', () => {
+  const claims: Claims = {
+    values: {
+      'com.example/level': 'Enhanced',
+      'com.example/score': '92',
+      'com.example/flag': 'true',
+    },
+    validFrom: null,
+    validUntil: null,
+    meta: {},
+  };
+
+  it('returns the value for a known key', () => {
+    expect(getClaim(claims, 'com.example/level')).toBe('Enhanced');
+  });
+
+  it('returns undefined for an unknown key', () => {
+    expect(getClaim(claims, 'com.example/missing')).toBeUndefined();
+  });
+});
+
+describe('getBoolClaim', () => {
+  const claims: Claims = {
+    values: {
+      'com.example/yes': 'true',
+      'com.example/no': 'false',
+      'com.example/garbage': 'maybe',
+    },
+    validFrom: null,
+    validUntil: null,
+    meta: {},
+  };
+
+  it('decodes "true" → true', () => {
+    expect(getBoolClaim(claims, 'com.example/yes')).toBe(true);
+  });
+
+  it('decodes "false" → false', () => {
+    expect(getBoolClaim(claims, 'com.example/no')).toBe(false);
+  });
+
+  it('returns undefined for non-boolean text', () => {
+    expect(getBoolClaim(claims, 'com.example/garbage')).toBeUndefined();
+  });
+
+  it('returns undefined for missing keys', () => {
+    expect(getBoolClaim(claims, 'com.example/missing')).toBeUndefined();
+  });
+});
+
+describe('getIntClaim', () => {
+  const claims: Claims = {
+    values: {
+      'com.example/n': '92',
+      'com.example/neg': '-5',
+      'com.example/garbage': '92.5',
+    },
+    validFrom: null,
+    validUntil: null,
+    meta: {},
+  };
+
+  it('decodes integer-shaped text', () => {
+    expect(getIntClaim(claims, 'com.example/n')).toBe(92);
+    expect(getIntClaim(claims, 'com.example/neg')).toBe(-5);
+  });
+
+  it('returns undefined for non-integer text', () => {
+    expect(getIntClaim(claims, 'com.example/garbage')).toBeUndefined();
+  });
+
+  it('returns undefined for missing keys', () => {
+    expect(getIntClaim(claims, 'com.example/missing')).toBeUndefined();
+  });
+});
+
+describe('isWithinValidityWindow', () => {
+  const baseView = (claims: Claims, expiresAt: string | null): CredentialView => ({
+    admin: 'Admin::abc' as PartyId,
+    issuer: 'Issuer::abc' as PartyId,
+    holder: 'Holder::abc' as PartyId,
+    claims,
+    createdAt: null,
+    expiresAt,
+    meta: {},
+  });
+
+  it('returns true when no timestamps are set', () => {
+    const view = baseView(
+      { values: { 'com.example/k': 'v' }, validFrom: null, validUntil: null, meta: {} },
+      null,
     );
+    expect(isWithinValidityWindow(view, new Date('2026-04-11T18:00:00Z'))).toBe(true);
+  });
+
+  it('respects claims.validUntil upper bound', () => {
+    const view = baseView(
+      {
+        values: { 'com.example/k': 'v' },
+        validFrom: null,
+        validUntil: '2026-04-11T18:00:00Z',
+        meta: {},
+      },
+      null,
+    );
+    expect(isWithinValidityWindow(view, new Date('2026-04-11T17:59:00Z'))).toBe(true);
+    expect(isWithinValidityWindow(view, new Date('2026-04-11T18:00:00Z'))).toBe(true);
+    expect(isWithinValidityWindow(view, new Date('2026-04-11T18:00:01Z'))).toBe(false);
+  });
+
+  it('respects claims.validFrom lower bound', () => {
+    const view = baseView(
+      {
+        values: { 'com.example/k': 'v' },
+        validFrom: '2026-04-11T18:00:00Z',
+        validUntil: null,
+        meta: {},
+      },
+      null,
+    );
+    expect(isWithinValidityWindow(view, new Date('2026-04-11T17:59:59Z'))).toBe(false);
+    expect(isWithinValidityWindow(view, new Date('2026-04-11T18:00:00Z'))).toBe(true);
+    expect(isWithinValidityWindow(view, new Date('2026-04-11T18:00:01Z'))).toBe(true);
+  });
+
+  it('respects the template-level expiresAt upper bound', () => {
+    const view = baseView(
+      { values: { 'com.example/k': 'v' }, validFrom: null, validUntil: null, meta: {} },
+      '2026-04-11T18:00:00Z',
+    );
+    expect(isWithinValidityWindow(view, new Date('2026-04-11T17:59:00Z'))).toBe(true);
+    expect(isWithinValidityWindow(view, new Date('2026-04-11T18:00:01Z'))).toBe(false);
   });
 });

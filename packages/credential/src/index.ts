@@ -33,10 +33,11 @@ export {
   generateState,
 } from './pkce';
 export {
-  assertUserRefIsPseudonym,
+  assertLooksLikePseudonym,
+  claimLooksLikePseudonym,
+  looksLikePseudonym,
   MIN_PSEUDONYM_ENTROPY_BITS,
   MIN_PSEUDONYM_LENGTH,
-  userRefLooksLikePseudonym,
 } from './pseudonym-check';
 export type { SdkStorage, StoredAuthorizationRequest } from './storage';
 export {

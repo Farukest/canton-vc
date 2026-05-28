@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-import type { CreateCredentialInput, Validator } from '@canton-vc/core';
+import type { Claims, CreateCredentialInput } from '@canton-vc/core';
 import type { KycDecision, KycProvider, KycSession } from '@canton-vc/kyc-provider';
 
 import { getMockCanton } from '../lib/mock-canton.js';
@@ -19,11 +19,17 @@ export interface MintInfo {
   readonly mintedAt: string;
 }
 
-const VENDOR_TO_VALIDATOR: Readonly<Record<SimulatedVendor, Validator>> = Object.freeze({
-  mock: 'generic',
-  didit: 'didit',
-  sumsub: 'sumsub',
-  persona: 'persona',
+/**
+ * Demo namespace for claim keys. A real issuer would pick their own
+ * reverse-DNS namespace (e.g. `io.acme/*`).
+ */
+const DEMO_NS = 'com.example';
+
+const VENDOR_TO_VALIDATOR: Readonly<Record<SimulatedVendor, string>> = Object.freeze({
+  mock: 'GenericValidator',
+  didit: 'DiditValidator',
+  sumsub: 'SumsubValidator',
+  persona: 'PersonaValidator',
 });
 
 const POLL_INTERVAL_MS = 5_000;
@@ -83,22 +89,38 @@ export function IssuePanel({ vendor, onMinted }: IssuePanelProps) {
         throw new Error(`Unexpected terminal status: ${decision.status}`);
       }
 
-      // 3. allocate user party + createCredential against the in-memory mock canton.
-      const userParty = await canton.allocateParty(`User${Date.now().toString(36)}`);
-      const validUntil = decision.expiresAt.replace(/\.\d+Z$/, 'Z');
+      // 3. allocate issuer + holder parties + createCredential against the
+      //    in-memory mock canton. Joint signatory per CIP #204 — the mock
+      //    accepts both parties under actAs.
+      const issuerParty = await canton.allocateParty(`Issuer${Date.now().toString(36)}`);
+      const holderParty = await canton.allocateParty(`Holder${Date.now().toString(36)}`);
+      const expiresAt = decision.expiresAt.replace(/\.\d+Z$/, 'Z');
+      const level = decision.level ?? 'basic';
+      const claims: Claims = {
+        values: {
+          [`${DEMO_NS}/userRef`]: decision.userRef,
+          [`${DEMO_NS}/proofHash`]: decision.proofHash,
+          [`${DEMO_NS}/proofSchemaId`]: decision.proofSchemaId,
+          [`${DEMO_NS}/level`]: level === 'enhanced' ? 'Enhanced' : 'Basic',
+          [`${DEMO_NS}/status`]: 'Active',
+          [`${DEMO_NS}/humanScore`]: '95',
+          [`${DEMO_NS}/validator`]: VENDOR_TO_VALIDATOR[vendor],
+          [`${DEMO_NS}/identityVerified`]: (decision.evidence.identityVerified ?? false) ? 'true' : 'false',
+          [`${DEMO_NS}/livenessVerified`]: (decision.evidence.livenessVerified ?? false) ? 'true' : 'false',
+          [`${DEMO_NS}/addressVerified`]: (decision.evidence.addressVerified ?? false) ? 'true' : 'false',
+          [`${DEMO_NS}/network`]: 'mock',
+        },
+        validFrom: null,
+        validUntil: expiresAt,
+        meta: {},
+      };
       const input: CreateCredentialInput = {
-        userParty,
-        userRef: decision.userRef,
-        proofHash: decision.proofHash,
-        proofSchemaId: decision.proofSchemaId,
-        status: 'active',
-        level: decision.level ?? 'basic',
-        validUntil,
-        humanScore: 95,
-        validator: VENDOR_TO_VALIDATOR[vendor],
-        identityVerified: decision.evidence.identityVerified ?? false,
-        livenessVerified: decision.evidence.livenessVerified ?? false,
-        addressVerified: decision.evidence.addressVerified ?? false,
+        issuerParty,
+        holderParty,
+        adminParty: issuerParty,
+        claims,
+        expiresAt,
+        meta: {},
       };
       const mint = await canton.createCredential(input);
       const blob = canton.getBlob(mint.contractId) ?? '';

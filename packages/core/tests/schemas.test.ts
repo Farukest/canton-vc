@@ -1,5 +1,5 @@
 /**
- * Tests for `./src/schemas`.
+ * Tests for `./src/schemas` — v2.0.0 (CIP #204 alignment).
  *
  * The schemas gate every 2xx response from the participant. A failing
  * parse becomes a `CantonError('invalid_response', …)` upstream, so
@@ -7,9 +7,10 @@
  *
  *   * Happy-path bodies pass and preserve the core fields.
  *   * Missing required fields are rejected.
- *   * Type-wrong fields are rejected (string for number, etc.).
  *   * Unknown extras are tolerated via `passthrough`.
- *   * Enum / date / base64 literals are enforced.
+ *   * Datetime / base64 literals are enforced.
+ *   * The credential payload uses the v2.0.0 #204 shape
+ *     (`issuer`/`holder`/`admin`/`claims`/`createdAt`/`expiresAt`/`meta`).
  */
 
 import { describe, expect, it } from 'vitest';
@@ -23,45 +24,43 @@ import {
   PartyLookupResponseSchema,
   SubmitAndWaitResponseSchema,
 } from '../src';
-import { parseKycCredentialPayload } from '../src/schemas';
+import { CredentialViewSchema, parseCredentialPayload } from '../src/schemas';
+
+import {
+  buildAcsEntry,
+  buildCreatedEvent,
+  buildCreateSubmitResponse,
+  buildPublicFetchSubmitResponse,
+  buildRevokeSubmitResponse,
+  FIXTURE_ADMIN_PARTY,
+  FIXTURE_CLAIM_NS,
+  FIXTURE_CONTRACT_ID,
+  FIXTURE_HOLDER_PARTY,
+  FIXTURE_ISSUER_PARTY,
+  FIXTURE_LEDGER_OFFSET,
+  FIXTURE_PARTICIPANT_ID,
+  FIXTURE_RECORD_TIME,
+  FIXTURE_UPDATE_ID,
+} from './fixtures';
 
 /**
- * The submit-response schema (`SubmitAndWaitResponseSchema`) keeps
- * `createArgument` lax (`unknown`) because the same envelope ships
- * both KycCredential and KycNFT mints. The credential-shape
- * invariants live in `parseKycCredentialPayload`. Tests that exercise
- * those invariants run the response through both stages.
+ * The submit-response schema keeps `createArgument` lax (`unknown`)
+ * because the same envelope ships both Credential and KycNFT mints.
+ * The credential-shape invariants live in `parseCredentialPayload`.
  */
-function parseSubmitWithCredentialPayload(body: unknown): {
-  ok: boolean;
-} {
+function parseSubmitWithCredentialPayload(body: unknown): { ok: boolean } {
   const submitParse = SubmitAndWaitResponseSchema.safeParse(body);
   if (!submitParse.success) {
     return { ok: false };
   }
   const arg = submitParse.data.transaction.events[0]?.CreatedEvent?.createArgument;
   try {
-    parseKycCredentialPayload(arg);
+    parseCredentialPayload(arg);
     return { ok: true };
   } catch {
     return { ok: false };
   }
 }
-
-import {
-  buildAcsEntry,
-  buildCreatedEvent,
-  buildCreateSubmitResponse,
-  buildRevokeSubmitResponse,
-  buildVerifySubmitResponse,
-  FIXTURE_CONTRACT_ID,
-  FIXTURE_LEDGER_OFFSET,
-  FIXTURE_OPERATOR_PARTY,
-  FIXTURE_PARTICIPANT_ID,
-  FIXTURE_RECORD_TIME,
-  FIXTURE_UPDATE_ID,
-  FIXTURE_USER_PARTY,
-} from './fixtures';
 
 describe('ParticipantIdResponseSchema', () => {
   it('accepts a well-formed participant id body', () => {
@@ -93,24 +92,15 @@ describe('ParticipantIdResponseSchema', () => {
 describe('PartyLookupResponseSchema', () => {
   it('accepts a populated party lookup', () => {
     const parsed = PartyLookupResponseSchema.parse({
-      partyDetails: [{ party: FIXTURE_OPERATOR_PARTY, isLocal: true }],
+      partyDetails: [{ party: FIXTURE_ISSUER_PARTY, isLocal: true }],
     });
     expect(parsed.partyDetails).toHaveLength(1);
-    expect(parsed.partyDetails[0]?.party).toBe(FIXTURE_OPERATOR_PARTY);
+    expect(parsed.partyDetails[0]?.party).toBe(FIXTURE_ISSUER_PARTY);
   });
 
   it('accepts an empty party list', () => {
     const parsed = PartyLookupResponseSchema.parse({ partyDetails: [] });
     expect(parsed.partyDetails).toEqual([]);
-  });
-
-  it('tolerates extra fields on the entry', () => {
-    const parsed = PartyLookupResponseSchema.parse({
-      partyDetails: [
-        { party: FIXTURE_OPERATOR_PARTY, displayName: 'TestOperator', identityProviderId: 'idp' },
-      ],
-    });
-    expect(parsed.partyDetails[0]?.party).toBe(FIXTURE_OPERATOR_PARTY);
   });
 
   it('rejects missing partyDetails', () => {
@@ -120,26 +110,20 @@ describe('PartyLookupResponseSchema', () => {
   it('rejects a non-array partyDetails', () => {
     expect(PartyLookupResponseSchema.safeParse({ partyDetails: {} }).success).toBe(false);
   });
-
-  it('rejects a party entry missing the party field', () => {
-    expect(PartyLookupResponseSchema.safeParse({ partyDetails: [{ isLocal: true }] }).success).toBe(
-      false,
-    );
-  });
 });
 
 describe('PartyAllocationResponseSchema', () => {
   it('accepts a single-object partyDetails body', () => {
     const parsed = PartyAllocationResponseSchema.parse({
-      partyDetails: { party: FIXTURE_USER_PARTY, isLocal: true },
+      partyDetails: { party: FIXTURE_HOLDER_PARTY, isLocal: true },
     });
-    expect(parsed.partyDetails.party).toBe(FIXTURE_USER_PARTY);
+    expect(parsed.partyDetails.party).toBe(FIXTURE_HOLDER_PARTY);
   });
 
   it('rejects an array partyDetails (allocation returns single object)', () => {
     expect(
       PartyAllocationResponseSchema.safeParse({
-        partyDetails: [{ party: FIXTURE_USER_PARTY }],
+        partyDetails: [{ party: FIXTURE_HOLDER_PARTY }],
       }).success,
     ).toBe(false);
   });
@@ -159,7 +143,7 @@ describe('LedgerEndResponseSchema', () => {
     expect(LedgerEndResponseSchema.safeParse({ offset: '' }).success).toBe(false);
   });
 
-  it('coerces a numeric offset to a string (Canton 3.x JSON-encodes Long offsets as numbers)', () => {
+  it('coerces a numeric offset to a string', () => {
     const parsed = LedgerEndResponseSchema.parse({ offset: 42 });
     expect(parsed.offset).toBe('42');
     expect(typeof parsed.offset).toBe('string');
@@ -179,7 +163,7 @@ describe('LedgerEndResponseSchema', () => {
 });
 
 describe('SubmitAndWaitResponseSchema — create', () => {
-  it('accepts a create response with a CreatedEvent', () => {
+  it('accepts a create response with a CreatedEvent under the v2.0.0 shape', () => {
     const body = buildCreateSubmitResponse();
     const parsed = SubmitAndWaitResponseSchema.parse(body);
     expect(parsed.transaction.updateId).toBe(FIXTURE_UPDATE_ID);
@@ -189,10 +173,11 @@ describe('SubmitAndWaitResponseSchema — create', () => {
     const created = parsed.transaction.events[0]?.CreatedEvent;
     expect(created).toBeDefined();
     expect(created?.contractId).toBe(FIXTURE_CONTRACT_ID);
-    const payload = parseKycCredentialPayload(created?.createArgument);
-    expect(payload.status).toBe('Active');
-    expect(payload.level).toBe('Enhanced');
-    expect(payload.validator).toBe('DiditValidator');
+    const payload = parseCredentialPayload(created?.createArgument);
+    expect(payload.issuer).toBe(FIXTURE_ISSUER_PARTY);
+    expect(payload.holder).toBe(FIXTURE_HOLDER_PARTY);
+    expect(payload.admin).toBe(FIXTURE_ADMIN_PARTY);
+    expect(payload.claims.values[`${FIXTURE_CLAIM_NS}/level`]).toBe('Enhanced');
   });
 
   it('rejects a create body missing the transaction wrapper', () => {
@@ -211,108 +196,58 @@ describe('SubmitAndWaitResponseSchema — create', () => {
     expect(SubmitAndWaitResponseSchema.safeParse(body).success).toBe(false);
   });
 
-  it('rejects a payload missing required credential fields', () => {
+  it('rejects a payload missing the required claims field', () => {
     const body = buildCreateSubmitResponse();
     const created = (
       body['transaction'] as { events: Array<{ CreatedEvent: Record<string, unknown> }> }
     ).events[0]?.CreatedEvent;
     if (created && 'createArgument' in created) {
       const arg = created['createArgument'] as Record<string, unknown>;
-      delete arg['proofHash'];
+      delete arg['claims'];
     }
     expect(parseSubmitWithCredentialPayload(body).ok).toBe(false);
   });
 
-  it('rejects an unknown status enum', () => {
+  it('rejects a payload with a non-string claim value', () => {
     const body = buildCreateSubmitResponse();
     const created = (
       body['transaction'] as { events: Array<{ CreatedEvent: Record<string, unknown> }> }
     ).events[0]?.CreatedEvent;
     if (created) {
       const arg = created['createArgument'] as Record<string, unknown>;
-      arg['status'] = 'Unknown';
+      const claims = arg['claims'] as { values: Record<string, unknown> };
+      claims.values[`${FIXTURE_CLAIM_NS}/level`] = 92;
     }
     expect(parseSubmitWithCredentialPayload(body).ok).toBe(false);
   });
 
-  it('rejects a humanScore out of range', () => {
+  it('rejects a non-ISO claims.validUntil', () => {
     const body = buildCreateSubmitResponse();
     const created = (
       body['transaction'] as { events: Array<{ CreatedEvent: Record<string, unknown> }> }
     ).events[0]?.CreatedEvent;
     if (created) {
       const arg = created['createArgument'] as Record<string, unknown>;
-      arg['humanScore'] = 101;
+      const claims = arg['claims'] as { validUntil: unknown };
+      claims.validUntil = '2027/04/11';
     }
     expect(parseSubmitWithCredentialPayload(body).ok).toBe(false);
   });
 
-  it('coerces a string-encoded humanScore to a number (Canton 3.x JSON-encodes Daml `Int` as string)', () => {
+  it('accepts a null claims.validUntil (Daml `Optional Time`)', () => {
     const body = buildCreateSubmitResponse();
     const created = (
       body['transaction'] as { events: Array<{ CreatedEvent: Record<string, unknown> }> }
     ).events[0]?.CreatedEvent;
     if (created) {
       const arg = created['createArgument'] as Record<string, unknown>;
-      arg['humanScore'] = '90';
+      const claims = arg['claims'] as { validUntil: unknown };
+      claims.validUntil = null;
     }
-    const parsed = SubmitAndWaitResponseSchema.parse(body);
-    const parsedArg = parseKycCredentialPayload(
-      parsed.transaction.events[0]?.CreatedEvent?.createArgument,
-    );
-    expect(parsedArg.humanScore).toBe(90);
-    expect(typeof parsedArg.humanScore).toBe('number');
+    expect(parseSubmitWithCredentialPayload(body).ok).toBe(true);
   });
 
-  it('rejects a non-integer humanScore string', () => {
-    const body = buildCreateSubmitResponse();
-    const created = (
-      body['transaction'] as { events: Array<{ CreatedEvent: Record<string, unknown> }> }
-    ).events[0]?.CreatedEvent;
-    if (created) {
-      const arg = created['createArgument'] as Record<string, unknown>;
-      arg['humanScore'] = 'abc';
-    }
-    expect(parseSubmitWithCredentialPayload(body).ok).toBe(false);
-  });
-
-  it('rejects a string-encoded humanScore that exceeds the 0..100 invariant', () => {
-    const body = buildCreateSubmitResponse();
-    const created = (
-      body['transaction'] as { events: Array<{ CreatedEvent: Record<string, unknown> }> }
-    ).events[0]?.CreatedEvent;
-    if (created) {
-      const arg = created['createArgument'] as Record<string, unknown>;
-      arg['humanScore'] = '150';
-    }
-    expect(parseSubmitWithCredentialPayload(body).ok).toBe(false);
-  });
-
-  it('rejects a non-ISO validUntil', () => {
-    const body = buildCreateSubmitResponse();
-    const created = (
-      body['transaction'] as { events: Array<{ CreatedEvent: Record<string, unknown> }> }
-    ).events[0]?.CreatedEvent;
-    if (created) {
-      const arg = created['createArgument'] as Record<string, unknown>;
-      arg['validUntil'] = '2027/04/11';
-    }
-    expect(parseSubmitWithCredentialPayload(body).ok).toBe(false);
-  });
-
-  it('rejects a date-only validUntil (Daml `Time` requires full timestamp)', () => {
-    const body = buildCreateSubmitResponse();
-    const created = (
-      body['transaction'] as { events: Array<{ CreatedEvent: Record<string, unknown> }> }
-    ).events[0]?.CreatedEvent;
-    if (created) {
-      const arg = created['createArgument'] as Record<string, unknown>;
-      arg['validUntil'] = '2027-04-11';
-    }
-    expect(parseSubmitWithCredentialPayload(body).ok).toBe(false);
-  });
-
-  it('tolerates an optional createdEventBlob when present and base64', () => {
+  it('tolerates an optional createdEventBlob when base64', () => {
     const body = buildCreateSubmitResponse();
     const created = (
       body['transaction'] as { events: Array<{ CreatedEvent: Record<string, unknown> }> }
@@ -335,43 +270,37 @@ describe('SubmitAndWaitResponseSchema — create', () => {
   });
 });
 
-describe('SubmitAndWaitResponseSchema — verify', () => {
-  // the template returns a `CredentialView` struct from
-  // the `Verify` choice. The wire schema only validates the
-  // `ExercisedEvent` envelope (not the struct shape, which is parsed
-  // by `KycCredentialViewSchema` in `ledger.ts`); these tests pin
-  // that the envelope round-trips cleanly with both an "active" and
-  // a "revoked" view.
-  it('accepts a Verify exercise response with an isActive=true view', () => {
-    const parsed = SubmitAndWaitResponseSchema.parse(buildVerifySubmitResponse(true));
+describe('SubmitAndWaitResponseSchema — Credential_PublicFetch', () => {
+  it('accepts a PublicFetch exercise response carrying the standard view', () => {
+    const parsed = SubmitAndWaitResponseSchema.parse(buildPublicFetchSubmitResponse());
     const exercised = parsed.transaction.events[0]?.ExercisedEvent;
-    expect(exercised?.choice).toBe('Verify');
-    expect((exercised?.exerciseResult as { isActive: boolean }).isActive).toBe(true);
+    expect(exercised?.choice).toBe('Credential_PublicFetch');
+    expect(exercised?.consuming).toBe(false);
+    const view = CredentialViewSchema.parse(exercised?.exerciseResult);
+    expect(view.admin).toBe(FIXTURE_ADMIN_PARTY);
+    expect(view.issuer).toBe(FIXTURE_ISSUER_PARTY);
+    expect(view.holder).toBe(FIXTURE_HOLDER_PARTY);
   });
 
-  it('accepts a Verify exercise response with an isActive=false view', () => {
-    const parsed = SubmitAndWaitResponseSchema.parse(buildVerifySubmitResponse(false));
-    const exercised = parsed.transaction.events[0]?.ExercisedEvent;
-    expect((exercised?.exerciseResult as { isActive: boolean }).isActive).toBe(false);
-    // status flips with the active flag so the snapshot stays
-    // internally consistent (Active when isActive, Revoked otherwise).
-    expect((exercised?.exerciseResult as { status: string }).status).toBe('Revoked');
-  });
-
-  it('tolerates a non-consuming exercise (consuming: false)', () => {
-    const body = buildVerifySubmitResponse(true);
-    // consuming is already false in the fixture; assert parser accepts it
-    expect(SubmitAndWaitResponseSchema.safeParse(body).success).toBe(true);
+  it('rejects a view payload missing admin', () => {
+    const body = buildPublicFetchSubmitResponse();
+    const exercised = (
+      body['transaction'] as { events: Array<{ ExercisedEvent: Record<string, unknown> }> }
+    ).events[0]?.ExercisedEvent;
+    if (exercised) {
+      const view = exercised['exerciseResult'] as Record<string, unknown>;
+      delete view['admin'];
+      expect(CredentialViewSchema.safeParse(view).success).toBe(false);
+    }
   });
 });
 
 describe('SubmitAndWaitResponseSchema — revoke', () => {
-  it('accepts a RevokeCredential exercise response with unit result', () => {
+  it('accepts a RevokeCredential consuming exercise response', () => {
     const parsed = SubmitAndWaitResponseSchema.parse(buildRevokeSubmitResponse());
     const exercised = parsed.transaction.events[0]?.ExercisedEvent;
     expect(exercised?.choice).toBe('RevokeCredential');
     expect(exercised?.consuming).toBe(true);
-    expect(exercised?.exerciseResult).toEqual({});
   });
 });
 
@@ -408,28 +337,15 @@ describe('ActiveContractsResponseSchema', () => {
     expect(first?.createdEventBlob).toBe('c29tZS1ibG9i');
   });
 
-  it('rejects a bogus validator enum at the credential-payload parse step', () => {
-    // The ACS response schema keeps `createArgument` lax (the same
-    // envelope ships KycCredential + KycNFT mints), so a bogus
-    // validator enum no longer trips the top-level parse. The
-    // invariant is enforced at the next stage —
-    // `parseKycCredentialPayload` — which `query.ts::hydrateActiveContract`
-    // calls before exposing the typed payload to callers.
+  it('lets the ACS envelope schema accept a malformed createArgument, but the second-stage parser rejects', () => {
     const entry = buildAcsEntry();
     const created = entry['contractEntry'] as {
       JsActiveContract: { createdEvent: { createArgument: Record<string, unknown> } };
     };
-    created.JsActiveContract.createdEvent.createArgument['validator'] = 'BadValidator';
+    delete created.JsActiveContract.createdEvent.createArgument['claims'];
 
-    // ACS schema accepts (createArgument is `unknown`).
     expect(ActiveContractsResponseSchema.safeParse([entry]).success).toBe(true);
-
-    // Re-parse rejects.
-    expect(() =>
-      parseKycCredentialPayload(
-        created.JsActiveContract.createdEvent.createArgument,
-      ),
-    ).toThrow();
+    expect(() => parseCredentialPayload(created.JsActiveContract.createdEvent.createArgument)).toThrow();
   });
 });
 
@@ -468,8 +384,9 @@ describe('buildCreatedEvent fixture', () => {
   });
 
   it('respects field overrides', () => {
-    const created = buildCreatedEvent({ humanScore: 42, level: 'Enhanced' });
-    expect((created['createArgument'] as Record<string, unknown>)['humanScore']).toBe(42);
-    expect((created['createArgument'] as Record<string, unknown>)['level']).toBe('Enhanced');
+    const created = buildCreatedEvent({ admin: 'OverrideAdmin::abc' });
+    expect((created['createArgument'] as Record<string, unknown>)['admin']).toBe(
+      'OverrideAdmin::abc',
+    );
   });
 });

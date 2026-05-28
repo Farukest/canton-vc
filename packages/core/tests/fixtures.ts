@@ -1,94 +1,77 @@
 /**
- * Shared test fixtures for the Canton-client suite.
+ * Shared test fixtures for the Canton-client suite — v2.0.0 (CIP #204).
  *
  * The Canton client uses a small `FetchLike` surface (see `http.ts`)
  * so tests can inject a fully-deterministic stub. `buildFakeFetch`
  * below produces one that reads from a FIFO queue of pre-programmed
  * responses and records each request for later assertions.
  *
- * No real HTTP client is ever instantiated. The fixture also exports
- * canonical values — party ids, contract ids, time — that match
- * MainNet shapes so the assertions read like real traces.
+ * No real HTTP client is ever instantiated.
  */
 
 import { vi } from 'vitest';
-import type { CantonConfig, FetchLike, FetchLikeResponse } from '../src';
+import type { CantonConfig, Claims, FetchLike, FetchLikeResponse } from '../src';
 import { loadCantonConfig } from '../src';
 
 /* ---------- Canonical constants ---------- */
 
-/**
- * 64-hex fingerprint matching the MainNet operator namespace shape.
- * Stored without the `::` so tests can reuse it for multiple party
- * labels (e.g. operator and user parties on the same participant).
- */
 export const FIXTURE_NAMESPACE =
   '1220deadbeef0123456789abcdef0123456789abcdef0123456789abcdef0011';
 
-/**
- * Operator party — matches the MEMORY.md record.
- */
-export const FIXTURE_OPERATOR_PARTY = `Operator::${FIXTURE_NAMESPACE}`;
+export const FIXTURE_ISSUER_PARTY = `Issuer::${FIXTURE_NAMESPACE}`;
+export const FIXTURE_ADMIN_PARTY = FIXTURE_ISSUER_PARTY;
+export const FIXTURE_HOLDER_PARTY = `Holder-abc123::${FIXTURE_NAMESPACE}`;
 
-/**
- * Example user party for happy-path tests.
- */
-export const FIXTURE_USER_PARTY = `User-abc123::${FIXTURE_NAMESPACE}`;
-
-/**
- * Participant id — the participant's own party id, used by
- * `/v2/parties/participant-id`.
- */
 export const FIXTURE_PARTICIPANT_ID = `participant::${FIXTURE_NAMESPACE}`;
 
-/**
- * Plausible contract id — the participant format is a long hex
- * string. Here we use a shorter fixture since we never parse it.
- */
 export const FIXTURE_CONTRACT_ID =
   '00a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6';
 
-/**
- * Sample `updateId` and `recordTime` — used in transaction fixtures.
- */
 export const FIXTURE_UPDATE_ID = 'update-0000000001';
 export const FIXTURE_RECORD_TIME = '2026-04-11T18:00:00.000Z';
 export const FIXTURE_LEDGER_OFFSET = '000000000000000001';
 
-/**
- * Fixed deterministic clock — tests can freeze time to this value
- * when they want to assert the exact command id or `fetchedAt`
- * timestamp.
- */
 export const FIXTURE_NOW = new Date('2026-04-11T18:00:00.000Z');
 
-/**
- * Deterministic random source used by `newCommandId` in tests.
- * Produces a fixed 4-byte sequence so the generated command id is
- * stable across runs.
- */
 export function fixtureRand(n: number): Buffer {
   return Buffer.alloc(n, 0xab);
 }
 
-/**
- * Deterministic clock for command id generation.
- */
 export function fixtureClock(): number {
   return FIXTURE_NOW.getTime();
 }
 
-/* ---------- Config builder ---------- */
+/**
+ * Example reverse-DNS namespace for tests. Reflects the CIP #204
+ * convention (application picks its own prefix) without coupling
+ * the fixture set to any specific consumer.
+ */
+export const FIXTURE_CLAIM_NS = 'com.example';
 
 /**
- * Build a fresh `CantonConfig` with safe test defaults. Tests can
- * spread overrides to change individual fields without touching the
- * environment.
+ * Canonical claims map used by the happy-path fixtures. Uses
+ * `com.example/*` keys so the fixture is decoupled from any
+ * specific consumer's namespace.
  */
+export function buildClaims(overrides: Partial<Claims> = {}): Claims {
+  return {
+    values: overrides.values ?? {
+      [`${FIXTURE_CLAIM_NS}/userRef`]: 'firm-user-fixture',
+      [`${FIXTURE_CLAIM_NS}/level`]: 'Enhanced',
+      [`${FIXTURE_CLAIM_NS}/proofHash`]: 'deadbeef',
+    },
+    validFrom: overrides.validFrom ?? null,
+    validUntil: overrides.validUntil ?? '2027-04-11T00:00:00Z',
+    meta: overrides.meta ?? {},
+  };
+}
+
+/* ---------- Config builder ---------- */
+
 export function buildTestConfig(overrides: Partial<Record<string, string>> = {}): CantonConfig {
   const env = {
     CANTON_JSON_API_BASE_URL: 'http://canton-participant.test:7575',
-    CANTON_OPERATOR_PARTY: FIXTURE_OPERATOR_PARTY,
+    CANTON_OPERATOR_PARTY: FIXTURE_ISSUER_PARTY,
     CANTON_PACKAGE_NAME: '#canton-vc-credential:Canton.VC.Credential:Credential',
     CANTON_NETWORK: 'mainnet',
     CANTON_NETWORK_LABEL: 'Canton MainNet',
@@ -106,10 +89,6 @@ export function buildTestConfig(overrides: Partial<Record<string, string>> = {})
 
 /* ---------- Fake fetch ---------- */
 
-/**
- * Captured request — each call to the fake fetch pushes one of
- * these. Tests assert on the shape (method, path, parsed body).
- */
 export interface CapturedRequest {
   readonly method: string;
   readonly path: string;
@@ -118,34 +97,12 @@ export interface CapturedRequest {
   readonly body: unknown;
 }
 
-/**
- * Programmed response — either a body object + status, or an error
- * to throw. `status` defaults to 200.
- */
 export type FakeResponse =
-  | {
-      readonly kind: 'json';
-      readonly status?: number;
-      readonly body: unknown;
-    }
-  | {
-      readonly kind: 'text';
-      readonly status?: number;
-      readonly body: string;
-    }
-  | {
-      readonly kind: 'throw';
-      readonly error: Error;
-    }
-  | {
-      readonly kind: 'empty';
-      readonly status?: number;
-    };
+  | { readonly kind: 'json'; readonly status?: number; readonly body: unknown }
+  | { readonly kind: 'text'; readonly status?: number; readonly body: string }
+  | { readonly kind: 'throw'; readonly error: Error }
+  | { readonly kind: 'empty'; readonly status?: number };
 
-/**
- * Handle returned by `buildFakeFetch`. Tests program responses
- * via `.enqueue()` and assert captured requests via `.captured`.
- */
 export interface FakeFetchHandle {
   readonly fetch: FetchLike;
   readonly captured: CapturedRequest[];
@@ -154,15 +111,6 @@ export interface FakeFetchHandle {
   readonly remaining: () => number;
 }
 
-/**
- * Build a `FetchLike` that pulls responses from a FIFO queue and
- * captures each request. Calls fail if no response is queued.
- *
- * The fake is synchronous internally — it resolves the promise
- * immediately — but it respects the `AbortSignal`: if the signal
- * is already aborted by the time the fake runs, it throws an
- * abort error the same way the real fetch would.
- */
 export function buildFakeFetch(): FakeFetchHandle {
   const captured: CapturedRequest[] = [];
   const queue: FakeResponse[] = [];
@@ -211,14 +159,8 @@ export function buildFakeFetch(): FakeFetchHandle {
   };
 }
 
-/**
- * Parse the string body that `cantonFetch` serialized back into a
- * structured value for easier assertions.
- */
 function parseBody(raw: string | undefined): unknown {
-  if (raw === undefined) {
-    return undefined;
-  }
+  if (raw === undefined) return undefined;
   try {
     return JSON.parse(raw);
   } catch {
@@ -226,19 +168,11 @@ function parseBody(raw: string | undefined): unknown {
   }
 }
 
-/**
- * Build a `FetchLikeResponse` from a programmed `FakeResponse`.
- * Mirrors the narrow interface `http.ts` actually consumes.
- */
 function buildFakeResponse(response: FakeResponse): FetchLikeResponse {
   if (response.kind === 'json') {
     const status = response.status ?? 200;
     const text = JSON.stringify(response.body);
-    return {
-      ok: status >= 200 && status < 300,
-      status,
-      text: () => Promise.resolve(text),
-    };
+    return { ok: status >= 200 && status < 300, status, text: () => Promise.resolve(text) };
   }
   if (response.kind === 'text') {
     const status = response.status ?? 200;
@@ -250,74 +184,54 @@ function buildFakeResponse(response: FakeResponse): FetchLikeResponse {
   }
   if (response.kind === 'empty') {
     const status = response.status ?? 200;
-    return {
-      ok: status >= 200 && status < 300,
-      status,
-      text: () => Promise.resolve(''),
-    };
+    return { ok: status >= 200 && status < 300, status, text: () => Promise.resolve('') };
   }
-  // Unreachable — `throw` is handled in the caller.
   throw new Error('unreachable: buildFakeResponse called with throw');
 }
 
-/* ---------- Canned response bodies ---------- */
+/* ---------- Canned response bodies (v2.0.0 shape) ---------- */
 
 /**
- * Build a canonical `createdEvent` wire shape for a KYCCredential
- * active contract. Any field can be overridden; defaults mirror a
- * plausible MainNet credential for `FIXTURE_USER_PARTY`.
+ * Build a canonical `createdEvent` wire shape for a Credential
+ * active contract under the v2.0.0 #204 storage shape.
  */
 export function buildCreatedEvent(
   overrides: {
     contractId?: string;
     templateId?: string;
-    user?: string;
-    userRef?: string;
-    status?: 'Pending' | 'Active' | 'Revoked' | 'Expired';
-    // the level enum dropped 'Standard' tier — fixtures now produce
-    // either 'Basic' or 'Enhanced'.
-    level?: 'Basic' | 'Enhanced';
-    validator?:
-      | 'DiditValidator'
-      | 'OnfidoValidator'
-      | 'PersonaValidator'
-      | 'SumsubValidator'
-      | 'VeriffValidator'
-      | 'Au10tixValidator'
-      | 'JumioValidator'
-      | 'ZkValidator'
-      | 'Generic';
+    issuer?: string;
+    holder?: string;
+    admin?: string;
+    claims?: Claims;
+    createdAt?: string | null;
+    expiresAt?: string | null;
+    meta?: Readonly<Record<string, string>>;
     createdEventBlob?: string | undefined;
-    validUntil?: string;
-    humanScore?: number;
-    identityVerified?: boolean;
-    livenessVerified?: boolean;
-    addressVerified?: boolean;
-    network?: string;
-    proofHash?: string;
   } = {},
 ): Record<string, unknown> {
+  const issuer = overrides.issuer ?? FIXTURE_ISSUER_PARTY;
+  const holder = overrides.holder ?? FIXTURE_HOLDER_PARTY;
+  const admin = overrides.admin ?? FIXTURE_ADMIN_PARTY;
+  const claims = overrides.claims ?? buildClaims();
   const base: Record<string, unknown> = {
     contractId: overrides.contractId ?? FIXTURE_CONTRACT_ID,
     templateId: overrides.templateId ?? '#canton-vc-credential:Canton.VC.Credential:Credential',
     createArgument: {
-      operator: FIXTURE_OPERATOR_PARTY,
-      user: overrides.user ?? FIXTURE_USER_PARTY,
-      // `userRef` added to the on-chain payload.
-      userRef: overrides.userRef ?? 'firm-user-fixture',
-      proofHash: overrides.proofHash ?? 'deadbeef',
-      status: overrides.status ?? 'Active',
-      level: overrides.level ?? 'Enhanced',
-      validUntil: overrides.validUntil ?? '2027-04-11T00:00:00Z',
-      network: overrides.network ?? 'Canton MainNet',
-      humanScore: overrides.humanScore ?? 90,
-      validator: overrides.validator ?? 'DiditValidator',
-      identityVerified: overrides.identityVerified ?? true,
-      livenessVerified: overrides.livenessVerified ?? true,
-      addressVerified: overrides.addressVerified ?? false,
+      issuer,
+      holder,
+      admin,
+      claims: {
+        values: claims.values,
+        validFrom: claims.validFrom ?? null,
+        validUntil: claims.validUntil ?? null,
+        meta: claims.meta,
+      },
+      createdAt: overrides.createdAt === undefined ? '2026-04-11T18:00:00Z' : overrides.createdAt,
+      expiresAt: overrides.expiresAt === undefined ? '2027-04-11T00:00:00Z' : overrides.expiresAt,
+      meta: overrides.meta ?? {},
     },
-    signatories: [FIXTURE_OPERATOR_PARTY],
-    observers: [overrides.user ?? FIXTURE_USER_PARTY],
+    signatories: [issuer, holder],
+    observers: [],
   };
   if (overrides.createdEventBlob !== undefined) {
     base['createdEventBlob'] = overrides.createdEventBlob;
@@ -325,9 +239,6 @@ export function buildCreatedEvent(
   return base;
 }
 
-/**
- * Build a canonical ACS array entry wrapping a created event.
- */
 export function buildAcsEntry(
   createdEventOverrides: Parameters<typeof buildCreatedEvent>[0] = {},
 ): Record<string, unknown> {
@@ -343,8 +254,7 @@ export function buildAcsEntry(
 }
 
 /**
- * Build a submit-and-wait response body for a successful create. Used
- * by the ledger tests to stub the participant's response.
+ * Submit-and-wait response body for a successful Create.
  */
 export function buildCreateSubmitResponse(
   overrides: {
@@ -371,42 +281,45 @@ export function buildCreateSubmitResponse(
 }
 
 /**
- * Build a submit-and-wait response body for a successful Verify.
- *
- * the template returns a `CredentialView` struct rather
- * than a `Bool`. The boolean argument here drives the
- * `isActive` field of the produced view (and toggles the status
- * between 'Active' and 'Revoked' so the snapshot stays internally
- * consistent). Tests can override individual fields.
+ * Submit-and-wait response body for a successful
+ * `Credential_PublicFetch` exercise. Returns the standard CIP #204
+ * `CredentialView` payload as `exerciseResult`.
  */
-export function buildVerifySubmitResponse(
-  isActive: boolean,
+export function buildPublicFetchSubmitResponse(
   overrides: {
     updateId?: string;
     recordTime?: string;
     offset?: string;
-    userRef?: string;
-    level?: 'Basic' | 'Enhanced';
-    status?: 'Pending' | 'Active' | 'Revoked' | 'Expired';
+    issuer?: string;
+    holder?: string;
+    admin?: string;
+    claims?: Claims;
+    createdAt?: string | null;
+    expiresAt?: string | null;
+    meta?: Readonly<Record<string, string>>;
     exerciseResult?: unknown;
   } = {},
 ): Record<string, unknown> {
+  const issuer = overrides.issuer ?? FIXTURE_ISSUER_PARTY;
+  const holder = overrides.holder ?? FIXTURE_HOLDER_PARTY;
+  const admin = overrides.admin ?? FIXTURE_ADMIN_PARTY;
+  const claims = overrides.claims ?? buildClaims();
   const view =
     overrides.exerciseResult !== undefined
       ? overrides.exerciseResult
       : {
-          userRef: overrides.userRef ?? 'firm-user-fixture',
-          proofHash: 'deadbeef',
-          status: overrides.status ?? (isActive ? 'Active' : 'Revoked'),
-          level: overrides.level ?? 'Enhanced',
-          validUntil: '2027-04-11T00:00:00Z',
-          network: 'Canton MainNet',
-          humanScore: 90,
-          validator: 'DiditValidator',
-          identityVerified: true,
-          livenessVerified: true,
-          addressVerified: true,
-          isActive,
+          admin,
+          issuer,
+          holder,
+          claims: {
+            values: claims.values,
+            validFrom: claims.validFrom ?? null,
+            validUntil: claims.validUntil ?? null,
+            meta: claims.meta,
+          },
+          createdAt: overrides.createdAt === undefined ? '2026-04-11T18:00:00Z' : overrides.createdAt,
+          expiresAt: overrides.expiresAt === undefined ? '2027-04-11T00:00:00Z' : overrides.expiresAt,
+          meta: overrides.meta ?? {},
         };
   return {
     transaction: {
@@ -418,7 +331,7 @@ export function buildVerifySubmitResponse(
           ExercisedEvent: {
             contractId: FIXTURE_CONTRACT_ID,
             templateId: '#canton-vc-credential:Canton.VC.Credential:Credential',
-            choice: 'Verify',
+            choice: 'Credential_PublicFetch',
             consuming: false,
             exerciseResult: view,
           },
@@ -429,8 +342,9 @@ export function buildVerifySubmitResponse(
 }
 
 /**
- * Build a submit-and-wait response body for a successful revoke.
- * The consuming `RevokeCredential` choice returns `Unit` (`{}`).
+ * Submit-and-wait response for a successful `RevokeCredential`.
+ * The consuming choice returns a contract id for the new revoked
+ * sibling.
  */
 export function buildRevokeSubmitResponse(
   overrides: { updateId?: string; recordTime?: string; offset?: string } = {},
@@ -447,7 +361,7 @@ export function buildRevokeSubmitResponse(
             templateId: '#canton-vc-credential:Canton.VC.Credential:Credential',
             choice: 'RevokeCredential',
             consuming: true,
-            exerciseResult: {},
+            exerciseResult: 'new-revoked-sibling-contract-id',
           },
         },
       ],

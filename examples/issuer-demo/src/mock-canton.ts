@@ -55,14 +55,14 @@ export class MockCantonClient {
     // runs with identical input collide (matches real-network behavior
     // for replay protection).
     const idSource = [
-      input.userParty,
-      input.userRef,
-      input.proofHash,
-      input.proofSchemaId,
-      input.status,
-      input.level,
-      input.validUntil,
-      input.validator,
+      input.issuerParty,
+      input.holderParty,
+      input.adminParty,
+      JSON.stringify(input.claims.values),
+      input.claims.validFrom ?? '',
+      input.claims.validUntil ?? '',
+      input.createdAt ?? '',
+      input.expiresAt ?? '',
     ].join('|');
     const contractId = createHash('sha256').update(idSource).digest('hex') as unknown as ContractId;
     const commandId = `mock-cmd-${randomUUID()}` as CommandId;

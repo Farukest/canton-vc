@@ -1,8 +1,15 @@
 import type { CredentialView } from '@canton-vc/core';
+import { getClaim, isWithinValidityWindow } from '@canton-vc/core';
 
 interface CredentialViewCardProps {
   readonly view: CredentialView;
   readonly title?: string;
+  /**
+   * Application-defined reverse-DNS namespace prefix for the demo
+   * claim keys (e.g. `com.example`). Defaults to `com.example`,
+   * matching the issuer-demo and verifier-demo fixtures.
+   */
+  readonly claimNamespace?: string;
 }
 
 function trunc(s: string, head = 12, tail = 6): string {
@@ -10,61 +17,95 @@ function trunc(s: string, head = 12, tail = 6): string {
   return `${s.slice(0, head)}…${s.slice(-tail)}`;
 }
 
-export function CredentialViewCard({ view, title = 'CredentialView' }: CredentialViewCardProps) {
+export function CredentialViewCard({
+  view,
+  title = 'CredentialView',
+  claimNamespace = 'com.example',
+}: CredentialViewCardProps) {
+  const ns = claimNamespace;
+  const userRef = getClaim(view.claims, `${ns}/userRef`);
+  const status = getClaim(view.claims, `${ns}/status`);
+  const level = getClaim(view.claims, `${ns}/level`);
+  const validator = getClaim(view.claims, `${ns}/validator`);
+  const identityVerified = getClaim(view.claims, `${ns}/identityVerified`);
+  const livenessVerified = getClaim(view.claims, `${ns}/livenessVerified`);
+  const addressVerified = getClaim(view.claims, `${ns}/addressVerified`);
+  const humanScore = getClaim(view.claims, `${ns}/humanScore`);
+  const network = getClaim(view.claims, `${ns}/network`);
+  const proofHash = getClaim(view.claims, `${ns}/proofHash`);
+  const proofSchemaId = getClaim(view.claims, `${ns}/proofSchemaId`);
+  const inWindow = isWithinValidityWindow(view);
+  const isActive = inWindow && status !== 'Revoked';
+
   return (
     <div className="view-card">
       <header className="view-card__header">
         <h3 className="view-card__title">{title}</h3>
         <span
-          className={`view-card__pill view-card__pill--${view.isActive ? 'active' : 'inactive'}`}
+          className={`view-card__pill view-card__pill--${isActive ? 'active' : 'inactive'}`}
         >
-          isActive: {String(view.isActive)}
+          isActive: {String(isActive)}
         </span>
       </header>
 
       <dl className="view-card__grid">
+        <dt>issuer</dt>
+        <dd>
+          <code>{trunc(view.issuer, 16, 8)}</code>
+        </dd>
+
+        <dt>holder</dt>
+        <dd>
+          <code>{trunc(view.holder, 16, 8)}</code>
+        </dd>
+
+        <dt>admin</dt>
+        <dd>
+          <code>{trunc(view.admin, 16, 8)}</code>
+        </dd>
+
         <dt>userRef</dt>
         <dd>
-          <code>{view.userRef}</code>
+          <code>{userRef ?? '—'}</code>
         </dd>
 
         <dt>status</dt>
-        <dd>{view.status}</dd>
+        <dd>{status ?? '—'}</dd>
 
         <dt>level</dt>
-        <dd>{view.level}</dd>
+        <dd>{level ?? '—'}</dd>
 
         <dt>validator</dt>
-        <dd>{view.validator}</dd>
+        <dd>{validator ?? '—'}</dd>
 
         <dt>identityVerified</dt>
-        <dd>{String(view.identityVerified)}</dd>
+        <dd>{identityVerified ?? '—'}</dd>
 
         <dt>livenessVerified</dt>
-        <dd>{String(view.livenessVerified)}</dd>
+        <dd>{livenessVerified ?? '—'}</dd>
 
         <dt>addressVerified</dt>
-        <dd>{String(view.addressVerified)}</dd>
+        <dd>{addressVerified ?? '—'}</dd>
 
         <dt>humanScore</dt>
-        <dd>{view.humanScore}</dd>
+        <dd>{humanScore ?? '—'}</dd>
 
         <dt>network</dt>
-        <dd>{view.network}</dd>
+        <dd>{network ?? '—'}</dd>
 
-        <dt>validUntil</dt>
+        <dt>expiresAt</dt>
         <dd>
-          <code>{view.validUntil}</code>
+          <code>{view.expiresAt ?? 'null'}</code>
         </dd>
 
         <dt>proofHash</dt>
         <dd>
-          <code>{trunc(view.proofHash, 16, 8)}</code>
+          <code>{proofHash !== undefined ? trunc(proofHash, 16, 8) : '—'}</code>
         </dd>
 
         <dt>proofSchemaId</dt>
         <dd>
-          <code>{view.proofSchemaId === null ? 'null' : trunc(view.proofSchemaId, 16, 8)}</code>
+          <code>{proofSchemaId !== undefined ? trunc(proofSchemaId, 16, 8) : '—'}</code>
         </dd>
       </dl>
     </div>

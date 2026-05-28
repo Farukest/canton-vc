@@ -1,25 +1,25 @@
 /**
- * In-memory Canton mock for the verifier-demo SPA.
+ * In-memory Canton mock for the verifier-demo SPA — v2.0.0 (CIP #204).
  *
- * `@canton-vc/core`'s real `CantonClient` submits commands to a Canton
- * JSON Ledger v2 endpoint and waits for the sequencer to confirm. The
- * browser demo replaces it with an in-memory store: `createCredential`
- * records the input under a synthesized contract id, `verifyCredential`
- * looks it up and synthesizes a `CredentialView` from the stored
- * fields, and `fetchDisclosureBundleByContractId` returns the stored
- * blob.
+ * `@canton-vc/core`'s real `CantonClient` submits commands to a
+ * Canton JSON Ledger v2 endpoint and waits for the sequencer to
+ * confirm. The browser demo replaces it with an in-memory store:
+ * `createCredential` records the input under a synthesized contract
+ * id, `verifyCredential` looks it up and returns the same
+ * `CredentialView`, and `fetchDisclosureBundleByContractId` returns
+ * the stored blob.
  *
  * The mock is the only thing simulated — the demo uses the real
- * `verifyDisclosure()` from `@canton-vc/credential`, so the call site
- * the reviewer reads is unchanged. Swap `MockCantonClient` for a real
- * `CantonClient` pointed at a participant and the same flow drives an
- * on-chain mint + verify.
+ * `verifyDisclosure()` from `@canton-vc/credential`. Swap
+ * `MockCantonClient` for a real `CantonClient` pointed at a
+ * participant and the same flow drives an on-chain mint + verify.
  *
  * @module
  */
 
 import type {
   CantonClient,
+  Claims,
   CommandId,
   ContractId,
   CreateCredentialInput,
@@ -27,11 +27,9 @@ import type {
   CreateKycNftInput,
   CreateKycNftResult,
   CredentialView,
-  DamlCredentialStatus,
-  DamlKycLevel,
-  DamlValidatorType,
   DisclosureBundle,
   LedgerOffset,
+  Metadata,
   PartyId,
   RevokeCredentialInput,
   RevokeCredentialResult,
@@ -41,30 +39,6 @@ import type {
 } from '@canton-vc/core';
 
 import { randomHex, sha256Hex } from './sha256.js';
-
-const VALIDATOR_TO_DAML: Readonly<Record<string, DamlValidatorType>> = Object.freeze({
-  didit: 'DiditValidator',
-  onfido: 'OnfidoValidator',
-  persona: 'PersonaValidator',
-  sumsub: 'SumsubValidator',
-  veriff: 'VeriffValidator',
-  au10tix: 'Au10tixValidator',
-  jumio: 'JumioValidator',
-  zk: 'ZkValidator',
-  generic: 'Generic',
-});
-
-const STATUS_TO_DAML: Readonly<Record<string, DamlCredentialStatus>> = Object.freeze({
-  pending: 'Pending',
-  active: 'Active',
-  revoked: 'Revoked',
-  expired: 'Expired',
-});
-
-const LEVEL_TO_DAML: Readonly<Record<string, DamlKycLevel>> = Object.freeze({
-  basic: 'Basic',
-  enhanced: 'Enhanced',
-});
 
 function base64Encode(input: string): string {
   return globalThis.btoa(input);
@@ -107,13 +81,10 @@ export class MockCantonClient {
   async createCredential(input: CreateCredentialInput): Promise<CreateCredentialResult> {
     const contractIdHex = await sha256Hex(
       [
-        input.userParty,
-        input.userRef,
-        input.proofHash,
-        input.proofSchemaId,
-        input.status,
-        input.level,
-        input.validator,
+        input.issuerParty,
+        input.holderParty,
+        input.adminParty,
+        JSON.stringify(input.claims.values),
         Date.now().toString(),
       ].join('|'),
     );
@@ -146,8 +117,12 @@ export class MockCantonClient {
       );
     }
     const view = this.#synthView(record);
+    if (input.expectedAdmin !== view.admin) {
+      throw new Error(
+        `Mock canton: expectedAdmin "${input.expectedAdmin}" does not match credential admin "${view.admin}".`,
+      );
+    }
     return Object.freeze({
-      verified: view.isActive,
       view,
       contractId: input.contractId,
       commandId: `mock-cmd-${randomHex(8)}` as CommandId,
@@ -187,7 +162,7 @@ export class MockCantonClient {
       );
     }
     const contractIdHex = await sha256Hex(
-      ['nft', input.customerParty, input.boundCredentialId, input.serialNumber].join('|'),
+      ['nft', input.holderParty, input.boundCredentialId, input.serialNumber].join('|'),
     );
     const contractId = contractIdHex as ContractId;
     this.#nfts.set(contractId, { input, archived: false });
@@ -222,13 +197,13 @@ export class MockCantonClient {
   /** Demo-only escape hatch — list whatever's been minted to render in the UI. */
   listMinted(): ReadonlyArray<{
     readonly contractId: ContractId;
-    readonly userRef: string;
+    readonly holder: PartyId;
     readonly mintedAt: string;
     readonly revoked: boolean;
   }> {
     return Array.from(this.#credentials.entries()).map(([contractId, record]) => ({
       contractId,
-      userRef: record.input.userRef,
+      holder: record.input.holderParty,
       mintedAt: record.mintedAt,
       revoked: record.revoked,
     }));
@@ -242,35 +217,25 @@ export class MockCantonClient {
 
   /** Compute the on-chain view the way the participant would. */
   #synthView(record: CredentialRecord): CredentialView {
-    const now = new Date();
-    const validUntil = new Date(record.input.validUntil);
-    const status: DamlCredentialStatus = record.revoked
-      ? 'Revoked'
-      : STATUS_TO_DAML[record.input.status] ?? 'Pending';
-    const isActive = status === 'Active' && now <= validUntil;
+    const claims: Claims = record.revoked
+      ? {
+          ...record.input.claims,
+          values: { ...record.input.claims.values, 'com.example/status': 'Revoked' },
+        }
+      : record.input.claims;
+    const meta: Metadata = record.input.meta ?? {};
     return Object.freeze({
-      userRef: record.input.userRef,
-      proofHash: record.input.proofHash,
-      status,
-      level: LEVEL_TO_DAML[record.input.level] ?? 'Basic',
-      validUntil: record.input.validUntil,
-      network: 'mock',
-      humanScore: record.input.humanScore,
-      validator: VALIDATOR_TO_DAML[record.input.validator] ?? 'Generic',
-      identityVerified: record.input.identityVerified,
-      livenessVerified: record.input.livenessVerified,
-      addressVerified: record.input.addressVerified,
-      isActive,
-      proofSchemaId: record.input.proofSchemaId,
+      admin: record.input.adminParty,
+      issuer: record.input.issuerParty,
+      holder: record.input.holderParty,
+      claims,
+      createdAt: record.input.createdAt ?? record.mintedAt,
+      expiresAt: record.input.expiresAt ?? null,
+      meta,
     });
   }
 }
 
-/**
- * Get a singleton mock canton client for the SPA. Shared across all
- * panels so a credential minted in one panel is visible to the
- * verifier panel.
- */
 let singleton: MockCantonClient | null = null;
 export function getMockCanton(): MockCantonClient {
   if (singleton === null) {
@@ -279,12 +244,6 @@ export function getMockCanton(): MockCantonClient {
   return singleton;
 }
 
-/**
- * Cast the mock to the SDK's `CantonClient` shape. The SDK only
- * touches the methods we implement above; remaining methods are
- * out of the demo's code paths. Cast through `unknown` per TS norm
- * for partial-conformance test mocks.
- */
 export function asCantonClient(mock: MockCantonClient): CantonClient {
   return mock as unknown as CantonClient;
 }

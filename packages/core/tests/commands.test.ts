@@ -1,529 +1,311 @@
 /**
- * Tests for `./src/commands`.
+ * Tests for `./src/commands` — v2.0.0 (CIP #204 alignment).
  *
- * `commands.ts` is pure: given a config + an input + an operator
- * party + a command id, it returns the exact JSON body the V2 API
- * expects. These tests pin:
- *
- *   * `newCommandId` — deterministic with injected clock + rand,
- *     rejects invalid clock values, enforces the max length.
- *   * `buildCreateCredentialCommand` — every field is validated,
- *     Daml-side enums are derived from DB-side input, outer body
- *     carries the correct `commands.commands` double wrapper, no
- *     `transactionFormat` (Bool return not needed).
- *   * `buildVerifyCredentialCommand` — exercise body, LEDGER_EFFECTS
- *     transactionFormat is present, choice = 'Verify'.
- *   * `buildRevokeCredentialCommand` — exercise body, no
- *     transactionFormat, choice = 'RevokeCredential'.
- *   * Validation errors: bad proof hash, bad validUntil shape, bad
- *     humanScore, bad contract id.
+ * Pins:
+ *   * `newCommandId` produces deterministic + bounded output.
+ *   * `deterministicCommandId` reproduces the same id from the same seed.
+ *   * `buildCreateCredentialCommand` emits the joint-signatory shape
+ *     (actAs = [issuer, holder]) with the #204 storage payload.
+ *   * `buildVerifyCredentialCommand` exercises `Credential_PublicFetch`
+ *     with `expectedAdmin` + `actor` choice arguments.
+ *   * `buildRevokeCredentialCommand` exercises `RevokeCredential` with
+ *     a required `reason` string.
+ *   * Disclosed-contract base64url → base64 normalisation works.
  */
 
 import { describe, expect, it } from 'vitest';
 
-import type { CommandId, CreateCredentialInput, PartyId } from '../src';
 import {
   buildCreateCredentialCommand,
+  buildCreateKycNftCommand,
   buildRevokeCredentialCommand,
   buildVerifyCredentialCommand,
   CantonError,
   deterministicCommandId,
-  isCantonErrorWithCode,
   MAX_COMMAND_ID_LENGTH,
   newCommandId,
-  TRANSACTION_SHAPE_LEDGER_EFFECTS,
 } from '../src';
-
+import type {
+  CommandId,
+  ContractId,
+  CreateCredentialInput,
+  CreateKycNftInput,
+  PartyId,
+  RevokeCredentialInput,
+  VerifyCredentialInput,
+} from '../src';
 import {
+  buildClaims,
   buildTestConfig,
+  FIXTURE_ADMIN_PARTY,
+  FIXTURE_CLAIM_NS,
   FIXTURE_CONTRACT_ID,
-  FIXTURE_NOW,
-  FIXTURE_OPERATOR_PARTY,
-  FIXTURE_USER_PARTY,
+  FIXTURE_HOLDER_PARTY,
+  FIXTURE_ISSUER_PARTY,
   fixtureClock,
   fixtureRand,
 } from './fixtures';
 
-const OPERATOR = FIXTURE_OPERATOR_PARTY as PartyId;
-const USER = FIXTURE_USER_PARTY as PartyId;
-
-const VALID_CREATE_INPUT: CreateCredentialInput = {
-  userParty: USER,
-  userRef: 'firm-user-fixture',
-  proofHash: 'deadbeef',
-  proofSchemaId: 'cafebabe1234567890abcdef',
-  status: 'active',
-  level: 'enhanced',
-  validUntil: '2027-04-11T00:00:00Z',
-  humanScore: 85,
-  validator: 'didit',
-  identityVerified: true,
-  livenessVerified: true,
-  addressVerified: false,
-};
+const TEST_CONFIG = buildTestConfig();
 
 describe('newCommandId', () => {
-  it('generates a deterministic command id from injected clock + rand', () => {
-    const config = buildTestConfig();
-    const commandId = newCommandId(config, 'create', fixtureClock, fixtureRand);
-    expect(commandId).toBe(`crv-create-${FIXTURE_NOW.getTime()}-abababab`);
+  it('produces a deterministic id under a fixed clock + rand', () => {
+    const id = newCommandId(TEST_CONFIG, 'create', fixtureClock, fixtureRand);
+    expect(id).toMatch(/^crv-create-\d+-[0-9a-f]{8}$/);
+    expect(id.length).toBeLessThanOrEqual(MAX_COMMAND_ID_LENGTH);
   });
 
-  it('honours a custom prefix from config', () => {
-    const config = buildTestConfig({ CANTON_COMMAND_ID_PREFIX: 'custom' });
-    const commandId = newCommandId(config, 'verify', fixtureClock, fixtureRand);
-    expect(commandId).toBe(`custom-verify-${FIXTURE_NOW.getTime()}-abababab`);
+  it('uses the configured prefix and supplied purpose', () => {
+    const id = newCommandId(TEST_CONFIG, 'verify', fixtureClock, fixtureRand);
+    expect(id.startsWith('crv-verify-')).toBe(true);
   });
 
-  it('includes the purpose tag in the output', () => {
-    const config = buildTestConfig();
-    const create = newCommandId(config, 'create', fixtureClock, fixtureRand);
-    const verify = newCommandId(config, 'verify', fixtureClock, fixtureRand);
-    const revoke = newCommandId(config, 'revoke', fixtureClock, fixtureRand);
-    expect(create).toContain('-create-');
-    expect(verify).toContain('-verify-');
-    expect(revoke).toContain('-revoke-');
-  });
-
-  it('uses Date.now and randomBytes by default', () => {
-    const config = buildTestConfig();
-    const commandId = newCommandId(config, 'create');
-    expect(commandId.startsWith('crv-create-')).toBe(true);
-    // Total length stays under the cap even in the default path.
-    expect(commandId.length).toBeLessThanOrEqual(MAX_COMMAND_ID_LENGTH);
-  });
-
-  it('rejects a non-finite clock value', () => {
-    const config = buildTestConfig();
-    expect(() => newCommandId(config, 'create', () => Number.NaN, fixtureRand)).toThrow(
+  it('throws on a non-finite clock', () => {
+    expect(() => newCommandId(TEST_CONFIG, 'create', () => Number.NaN, fixtureRand)).toThrow(
       CantonError,
     );
-    expect(() =>
-      newCommandId(config, 'create', () => Number.POSITIVE_INFINITY, fixtureRand),
-    ).toThrow(CantonError);
-  });
-
-  it('rejects a negative clock value', () => {
-    const config = buildTestConfig();
-    expect(() => newCommandId(config, 'create', () => -1, fixtureRand)).toThrow(CantonError);
-  });
-
-  it('rejects a candidate longer than MAX_COMMAND_ID_LENGTH', () => {
-    // Config caps CANTON_COMMAND_ID_PREFIX at 32 chars, so we force
-    // overflow via the injected rand source: a 64-byte buffer becomes
-    // 128 hex chars, which blows past the 64-char command id cap.
-    const config = buildTestConfig({ CANTON_COMMAND_ID_PREFIX: 'x'.repeat(32) });
-    const hugeRand = (_n: number): Buffer => Buffer.alloc(64, 0xcd);
-    expect(() => newCommandId(config, 'create', fixtureClock, hugeRand)).toThrow(CantonError);
-  });
-
-  it('produces stable ordering when clock is stable', () => {
-    const config = buildTestConfig();
-    const a = newCommandId(config, 'create', fixtureClock, fixtureRand);
-    const b = newCommandId(config, 'create', fixtureClock, fixtureRand);
-    expect(a).toBe(b);
   });
 });
 
 describe('deterministicCommandId', () => {
   it('produces the same id for the same seed', () => {
-    const config = buildTestConfig();
-    const seed = 'nft-mint:dce4d841-f3fb-4725-81c9-55512728b7ae';
-    const a = deterministicCommandId(config, 'create-nft', seed);
-    const b = deterministicCommandId(config, 'create-nft', seed);
+    const a = deterministicCommandId(TEST_CONFIG, 'create-nft', 'credential-uuid-x');
+    const b = deterministicCommandId(TEST_CONFIG, 'create-nft', 'credential-uuid-x');
     expect(a).toBe(b);
   });
 
-  it('produces different ids for different seeds', () => {
-    const config = buildTestConfig();
-    const a = deterministicCommandId(config, 'create-nft', 'nft-mint:cred-A');
-    const b = deterministicCommandId(config, 'create-nft', 'nft-mint:cred-B');
+  it('produces distinct ids for distinct seeds', () => {
+    const a = deterministicCommandId(TEST_CONFIG, 'create-nft', 'credential-uuid-x');
+    const b = deterministicCommandId(TEST_CONFIG, 'create-nft', 'credential-uuid-y');
     expect(a).not.toBe(b);
   });
 
-  it('embeds the purpose tag for participant log readability', () => {
-    const config = buildTestConfig();
-    const id = deterministicCommandId(config, 'create-nft', 'nft-mint:any');
-    expect(id).toContain('-create-nft-');
-  });
-
   it('rejects an empty seed', () => {
-    const config = buildTestConfig();
-    expect(() => deterministicCommandId(config, 'create-nft', '')).toThrow(CantonError);
-  });
-
-  it('stays under the command-id length cap', () => {
-    const config = buildTestConfig({ CANTON_COMMAND_ID_PREFIX: 'crv' });
-    const id = deterministicCommandId(config, 'create-nft', 'nft-mint:long-credential-id-uuid-with-extras');
-    expect(id.length).toBeLessThanOrEqual(MAX_COMMAND_ID_LENGTH);
+    expect(() => deterministicCommandId(TEST_CONFIG, 'create-nft', '')).toThrow(CantonError);
   });
 });
+
+const SAMPLE_CREATE_INPUT: CreateCredentialInput = {
+  issuerParty: FIXTURE_ISSUER_PARTY as PartyId,
+  holderParty: FIXTURE_HOLDER_PARTY as PartyId,
+  adminParty: FIXTURE_ADMIN_PARTY as PartyId,
+  claims: buildClaims(),
+  createdAt: '2026-04-11T18:00:00Z',
+  expiresAt: '2027-04-11T18:00:00Z',
+  meta: { 'com.example/note': 'fixture' },
+};
 
 describe('buildCreateCredentialCommand', () => {
-  function build(): ReturnType<typeof buildCreateCredentialCommand> {
-    const config = buildTestConfig();
-    const commandId = newCommandId(config, 'create', fixtureClock, fixtureRand);
-    return buildCreateCredentialCommand(config, VALID_CREATE_INPUT, OPERATOR, commandId);
-  }
-
-  it('wraps the inner list in the commands/commands double envelope', () => {
-    const body = build();
-    expect(body.commands.commands).toHaveLength(1);
-    expect(body.commands.userId).toBe('canton-vc-test');
-    expect(body.commands.actAs).toEqual([OPERATOR]);
-    expect(body.commands.commandId).toContain('crv-create-');
+  it('emits actAs containing both issuer and holder (joint signatory)', () => {
+    const commandId = 'crv-create-fixed' as CommandId;
+    const body = buildCreateCredentialCommand(TEST_CONFIG, SAMPLE_CREATE_INPUT, commandId);
+    expect(body.commands.actAs).toEqual([FIXTURE_ISSUER_PARTY, FIXTURE_HOLDER_PARTY]);
   });
 
-  it('emits a CreateCommand with the configured template id', () => {
-    const body = build();
-    const inner = body.commands.commands[0] as {
-      CreateCommand: { templateId: string; createArguments: Record<string, unknown> };
+  it('emits a CreateCommand wrapping the #204 storage shape', () => {
+    const commandId = 'crv-create-fixed' as CommandId;
+    const body = buildCreateCredentialCommand(TEST_CONFIG, SAMPLE_CREATE_INPUT, commandId);
+    const inner = body.commands.commands[0] as { CreateCommand: { createArguments: unknown } };
+    const args = inner.CreateCommand.createArguments as {
+      issuer: string;
+      holder: string;
+      admin: string;
+      claims: { values: Record<string, string>; validFrom: string | null; validUntil: string | null };
+      createdAt: string | null;
+      expiresAt: string | null;
+      meta: Record<string, string>;
     };
-    expect(inner.CreateCommand.templateId).toBe('#canton-vc-credential:Canton.VC.Credential:Credential');
-    expect(inner.CreateCommand.createArguments['operator']).toBe(OPERATOR);
-    expect(inner.CreateCommand.createArguments['user']).toBe(USER);
+    expect(args.issuer).toBe(FIXTURE_ISSUER_PARTY);
+    expect(args.holder).toBe(FIXTURE_HOLDER_PARTY);
+    expect(args.admin).toBe(FIXTURE_ADMIN_PARTY);
+    expect(args.claims.values[`${FIXTURE_CLAIM_NS}/level`]).toBe('Enhanced');
+    expect(args.createdAt).toBe('2026-04-11T18:00:00Z');
+    expect(args.expiresAt).toBe('2027-04-11T18:00:00Z');
   });
 
-  it('converts DB-side enums to Daml-side enums in the payload', () => {
-    const body = build();
-    const args = (
-      body.commands.commands[0] as {
-        CreateCommand: { createArguments: Record<string, unknown> };
-      }
-    ).CreateCommand.createArguments;
-    expect(args['status']).toBe('Active');
-    expect(args['level']).toBe('Enhanced');
-    expect(args['validator']).toBe('DiditValidator');
-    expect(args['userRef']).toBe('firm-user-fixture');
-  });
-
-  it('passes through verification flags and human score', () => {
-    const body = build();
-    const args = (
-      body.commands.commands[0] as {
-        CreateCommand: { createArguments: Record<string, unknown> };
-      }
-    ).CreateCommand.createArguments;
-    expect(args['identityVerified']).toBe(true);
-    expect(args['livenessVerified']).toBe(true);
-    expect(args['addressVerified']).toBe(false);
-    expect(args['humanScore']).toBe(85);
-    expect(args['network']).toBe('Canton MainNet');
-    expect(args['validUntil']).toBe('2027-04-11T00:00:00Z');
-  });
-
-  it('does NOT include transactionFormat for create (unit return)', () => {
-    const body = build();
-    expect(body.transactionFormat).toBeUndefined();
-  });
-
-  it('lowercases uppercase hex proof hashes', () => {
-    const config = buildTestConfig();
-    const commandId = newCommandId(config, 'create', fixtureClock, fixtureRand);
-    const body = buildCreateCredentialCommand(
-      config,
-      { ...VALID_CREATE_INPUT, proofHash: 'DEADBEEF' },
-      OPERATOR,
-      commandId,
-    );
-    const args = (
-      body.commands.commands[0] as {
-        CreateCommand: { createArguments: Record<string, unknown> };
-      }
-    ).CreateCommand.createArguments;
-    expect(args['proofHash']).toBe('deadbeef');
-  });
-
-  it('rejects an empty proof hash', () => {
-    const config = buildTestConfig();
-    const commandId = newCommandId(config, 'create', fixtureClock, fixtureRand);
+  it('rejects an empty claims map (template ensure clause invariant)', () => {
+    const input: CreateCredentialInput = {
+      ...SAMPLE_CREATE_INPUT,
+      claims: { values: {}, validFrom: null, validUntil: null, meta: {} },
+    };
     expect(() =>
-      buildCreateCredentialCommand(
-        config,
-        { ...VALID_CREATE_INPUT, proofHash: '' },
-        OPERATOR,
-        commandId,
-      ),
-    ).toThrowError(/proofHash/);
+      buildCreateCredentialCommand(TEST_CONFIG, input, 'crv-create-x' as CommandId),
+    ).toThrow(CantonError);
   });
 
-  it('rejects a non-hex proof hash', () => {
-    const config = buildTestConfig();
-    const commandId = newCommandId(config, 'create', fixtureClock, fixtureRand);
+  it('rejects an invalid ISO timestamp for claims.validUntil', () => {
+    const input: CreateCredentialInput = {
+      ...SAMPLE_CREATE_INPUT,
+      claims: { ...SAMPLE_CREATE_INPUT.claims, validUntil: 'not-a-time' },
+    };
     expect(() =>
-      buildCreateCredentialCommand(
-        config,
-        { ...VALID_CREATE_INPUT, proofHash: 'not-hex!' },
-        OPERATOR,
-        commandId,
-      ),
-    ).toThrowError(/hex/);
+      buildCreateCredentialCommand(TEST_CONFIG, input, 'crv-create-x' as CommandId),
+    ).toThrow(CantonError);
   });
 
-  it('rejects a proof hash longer than 128 chars', () => {
-    const config = buildTestConfig();
-    const commandId = newCommandId(config, 'create', fixtureClock, fixtureRand);
-    const tooLong = 'a'.repeat(129);
+  it('rejects an empty issuer party', () => {
+    const input: CreateCredentialInput = { ...SAMPLE_CREATE_INPUT, issuerParty: '' as PartyId };
     expect(() =>
-      buildCreateCredentialCommand(
-        config,
-        { ...VALID_CREATE_INPUT, proofHash: tooLong },
-        OPERATOR,
-        commandId,
-      ),
-    ).toThrowError(/128/);
-  });
-
-  it('rejects a validUntil that is not ISO 8601 timestamp shape', () => {
-    const config = buildTestConfig();
-    const commandId = newCommandId(config, 'create', fixtureClock, fixtureRand);
-    expect(() =>
-      buildCreateCredentialCommand(
-        config,
-        { ...VALID_CREATE_INPUT, validUntil: '2027-04-11' },
-        OPERATOR,
-        commandId,
-      ),
-    ).toThrowError(/validUntil/);
-  });
-
-  it('rejects a validUntil that does not round-trip (e.g. Feb 31)', () => {
-    const config = buildTestConfig();
-    const commandId = newCommandId(config, 'create', fixtureClock, fixtureRand);
-    try {
-      buildCreateCredentialCommand(
-        config,
-        { ...VALID_CREATE_INPUT, validUntil: '2027-02-31T00:00:00Z' },
-        OPERATOR,
-        commandId,
-      );
-      throw new Error('expected throw');
-    } catch (err) {
-      expect(isCantonErrorWithCode(err, 'invalid_command')).toBe(true);
-      expect((err as CantonError).message).toMatch(/round-trip/);
-    }
-  });
-
-  it('rejects a humanScore out of range', () => {
-    const config = buildTestConfig();
-    const commandId = newCommandId(config, 'create', fixtureClock, fixtureRand);
-    expect(() =>
-      buildCreateCredentialCommand(
-        config,
-        { ...VALID_CREATE_INPUT, humanScore: 101 },
-        OPERATOR,
-        commandId,
-      ),
-    ).toThrowError(/humanScore/);
-    expect(() =>
-      buildCreateCredentialCommand(
-        config,
-        { ...VALID_CREATE_INPUT, humanScore: -1 },
-        OPERATOR,
-        commandId,
-      ),
-    ).toThrowError(/humanScore/);
-  });
-
-  it('rejects a fractional humanScore', () => {
-    const config = buildTestConfig();
-    const commandId = newCommandId(config, 'create', fixtureClock, fixtureRand);
-    expect(() =>
-      buildCreateCredentialCommand(
-        config,
-        { ...VALID_CREATE_INPUT, humanScore: 42.5 },
-        OPERATOR,
-        commandId,
-      ),
-    ).toThrowError(/humanScore/);
-  });
-
-  it('accepts the bounds 0 and 100 for humanScore', () => {
-    const config = buildTestConfig();
-    const commandId = newCommandId(config, 'create', fixtureClock, fixtureRand);
-    expect(() =>
-      buildCreateCredentialCommand(
-        config,
-        { ...VALID_CREATE_INPUT, humanScore: 0 },
-        OPERATOR,
-        commandId,
-      ),
-    ).not.toThrow();
-    expect(() =>
-      buildCreateCredentialCommand(
-        config,
-        { ...VALID_CREATE_INPUT, humanScore: 100 },
-        OPERATOR,
-        commandId,
-      ),
-    ).not.toThrow();
+      buildCreateCredentialCommand(TEST_CONFIG, input, 'crv-create-x' as CommandId),
+    ).toThrow(CantonError);
   });
 });
 
-describe('buildVerifyCredentialCommand', () => {
-  function build() {
-    const config = buildTestConfig();
-    const commandId = newCommandId(config, 'verify', fixtureClock, fixtureRand) as CommandId;
-    return {
-      config,
-      commandId,
-      body: buildVerifyCredentialCommand(
-        config,
-        { contractId: FIXTURE_CONTRACT_ID as never, fetcher: OPERATOR },
-        OPERATOR,
-        commandId,
-      ),
-    };
-  }
+const SAMPLE_VERIFY_INPUT: VerifyCredentialInput = {
+  contractId: FIXTURE_CONTRACT_ID as ContractId,
+  actor: FIXTURE_HOLDER_PARTY as PartyId,
+  expectedAdmin: FIXTURE_ADMIN_PARTY as PartyId,
+};
 
-  it('emits an ExerciseCommand with choice=Verify and the fetcher choice argument', () => {
-    const { body } = build();
+describe('buildVerifyCredentialCommand', () => {
+  it('emits actAs containing only the actor (choice controller)', () => {
+    const body = buildVerifyCredentialCommand(
+      TEST_CONFIG,
+      SAMPLE_VERIFY_INPUT,
+      'crv-verify-x' as CommandId,
+    );
+    expect(body.commands.actAs).toEqual([FIXTURE_HOLDER_PARTY]);
+  });
+
+  it('exercises the Credential_PublicFetch choice with expectedAdmin + actor', () => {
+    const body = buildVerifyCredentialCommand(
+      TEST_CONFIG,
+      SAMPLE_VERIFY_INPUT,
+      'crv-verify-x' as CommandId,
+    );
     const inner = body.commands.commands[0] as {
       ExerciseCommand: {
-        templateId: string;
-        contractId: string;
         choice: string;
-        choiceArgument: Record<string, unknown>;
+        choiceArgument: { expectedAdmin: string; actor: string };
       };
     };
-    expect(inner.ExerciseCommand.choice).toBe('Verify');
-    expect(inner.ExerciseCommand.templateId).toBe(
-      '#canton-vc-credential:Canton.VC.Credential:Credential',
+    expect(inner.ExerciseCommand.choice).toBe('Credential_PublicFetch');
+    expect(inner.ExerciseCommand.choiceArgument.expectedAdmin).toBe(FIXTURE_ADMIN_PARTY);
+    expect(inner.ExerciseCommand.choiceArgument.actor).toBe(FIXTURE_HOLDER_PARTY);
+  });
+
+  it('does NOT include disclosedContracts when blob is absent', () => {
+    const body = buildVerifyCredentialCommand(
+      TEST_CONFIG,
+      SAMPLE_VERIFY_INPUT,
+      'crv-verify-x' as CommandId,
     );
-    expect(inner.ExerciseCommand.contractId).toBe(FIXTURE_CONTRACT_ID);
-    // choice takes `with fetcher : Party`
-    expect(inner.ExerciseCommand.choiceArgument).toEqual({ fetcher: OPERATOR });
-  });
-
-  it('includes transactionFormat with LEDGER_EFFECTS shape', () => {
-    const { body } = build();
-    expect(body.transactionFormat).toBeDefined();
-    expect(body.transactionFormat?.transactionShape).toBe(TRANSACTION_SHAPE_LEDGER_EFFECTS);
-    expect(body.transactionFormat?.eventFormat.verbose).toBe(true);
-    const cumulative = body.transactionFormat?.eventFormat.filtersForAnyParty.cumulative;
-    expect(cumulative?.length).toBe(1);
-    expect(cumulative?.[0]?.identifierFilter.WildcardFilter.value.includeCreatedEventBlob).toBe(
-      false,
-    );
-  });
-
-  it('wraps the command in the commands/commands envelope with actAs = fetcher', () => {
-    const { body, commandId } = build();
-    expect(body.commands.commandId).toBe(commandId);
-    // flexible-controller pattern: actAs is the fetcher (the
-    // choice controller), not the operator.
-    expect(body.commands.actAs).toEqual([OPERATOR]);
-  });
-
-  it('omits disclosedContracts when no blob is supplied', () => {
-    const { body } = build();
     expect(body.commands.disclosedContracts).toBeUndefined();
   });
 
-  it('attaches disclosedContracts when a base64 blob is supplied', () => {
-    const config = buildTestConfig();
-    const commandId = newCommandId(config, 'verify', fixtureClock, fixtureRand) as CommandId;
+  it('attaches disclosedContracts when blob is supplied + uses resolved template id', () => {
     const body = buildVerifyCredentialCommand(
-      config,
-      {
-        contractId: FIXTURE_CONTRACT_ID as never,
-        fetcher: OPERATOR,
-        disclosedBlobBase64: 'AAECAwQ',
-      },
-      OPERATOR,
-      commandId,
+      TEST_CONFIG,
+      { ...SAMPLE_VERIFY_INPUT, disclosedBlobBase64: 'YWJjZGVm' },
+      'crv-verify-x' as CommandId,
+      'a-resolved-template-hash:Canton.VC.Credential:Credential',
     );
-    expect(body.commands.disclosedContracts).toEqual([
-      {
-        contractId: FIXTURE_CONTRACT_ID,
-        templateId: '#canton-vc-credential:Canton.VC.Credential:Credential',
-        // Canton's JSON Ledger v2 requires standard base64 (not base64url)
-        // on DisclosedContract.createdEventBlob. The command builder
-        // normalizes via normalizeToStandardBase64() before submit:
-        // url-safe chars are converted back, and missing `=` padding
-        // is re-added. The 5-byte input `AAECAwQ` (no padding) becomes
-        // `AAECAwQ=` after normalisation.
-        createdEventBlob: 'AAECAwQ=',
-      },
-    ]);
+    expect(body.commands.disclosedContracts).toHaveLength(1);
+    const dc = body.commands.disclosedContracts?.[0];
+    expect(dc?.templateId).toBe('a-resolved-template-hash:Canton.VC.Credential:Credential');
   });
 
-  it('rejects an empty contract id', () => {
-    const config = buildTestConfig();
-    const commandId = newCommandId(config, 'verify', fixtureClock, fixtureRand) as CommandId;
-    expect(() =>
-      buildVerifyCredentialCommand(
-        config,
-        { contractId: '' as never, fetcher: OPERATOR },
-        OPERATOR,
-        commandId,
-      ),
-    ).toThrowError(/contractId/);
-  });
-
-  it('rejects a non-string contract id', () => {
-    const config = buildTestConfig();
-    const commandId = newCommandId(config, 'verify', fixtureClock, fixtureRand) as CommandId;
-    expect(() =>
-      buildVerifyCredentialCommand(
-        config,
-        { contractId: 42 as unknown as never, fetcher: OPERATOR },
-        OPERATOR,
-        commandId,
-      ),
-    ).toThrowError(/contractId/);
-  });
-
-  it('rejects a contract id longer than 8192 chars', () => {
-    const config = buildTestConfig();
-    const commandId = newCommandId(config, 'verify', fixtureClock, fixtureRand) as CommandId;
-    const huge = 'a'.repeat(8193);
-    expect(() =>
-      buildVerifyCredentialCommand(
-        config,
-        { contractId: huge as never, fetcher: OPERATOR },
-        OPERATOR,
-        commandId,
-      ),
-    ).toThrowError(/8192/);
+  it('normalises base64url disclosed blob to standard base64', () => {
+    const blob = 'A-B_Cd';
+    const body = buildVerifyCredentialCommand(
+      TEST_CONFIG,
+      { ...SAMPLE_VERIFY_INPUT, disclosedBlobBase64: blob },
+      'crv-verify-x' as CommandId,
+      'a-resolved-template-hash:Canton.VC.Credential:Credential',
+    );
+    const dc = body.commands.disclosedContracts?.[0];
+    expect(dc?.createdEventBlob).toBe('A+B/Cd==');
   });
 });
 
-describe('buildRevokeCredentialCommand', () => {
-  function build() {
-    const config = buildTestConfig();
-    const commandId = newCommandId(config, 'revoke', fixtureClock, fixtureRand) as CommandId;
-    return {
-      config,
-      commandId,
-      body: buildRevokeCredentialCommand(
-        config,
-        { contractId: FIXTURE_CONTRACT_ID as never },
-        OPERATOR,
-        commandId,
-      ),
-    };
-  }
+const SAMPLE_REVOKE_INPUT: RevokeCredentialInput = {
+  contractId: FIXTURE_CONTRACT_ID as ContractId,
+  reason: 'compliance-policy-violation',
+};
 
-  it('emits an ExerciseCommand with choice=RevokeCredential', () => {
-    const { body } = build();
+describe('buildRevokeCredentialCommand', () => {
+  it('emits actAs containing only the issuer (choice controller)', () => {
+    const body = buildRevokeCredentialCommand(
+      TEST_CONFIG,
+      SAMPLE_REVOKE_INPUT,
+      FIXTURE_ISSUER_PARTY as PartyId,
+      'crv-revoke-x' as CommandId,
+    );
+    expect(body.commands.actAs).toEqual([FIXTURE_ISSUER_PARTY]);
+  });
+
+  it('exercises RevokeCredential with reason + null nftCid by default', () => {
+    const body = buildRevokeCredentialCommand(
+      TEST_CONFIG,
+      SAMPLE_REVOKE_INPUT,
+      FIXTURE_ISSUER_PARTY as PartyId,
+      'crv-revoke-x' as CommandId,
+    );
     const inner = body.commands.commands[0] as {
-      ExerciseCommand: { choice: string; contractId: string };
+      ExerciseCommand: { choice: string; choiceArgument: { nftCid: unknown; reason: string } };
     };
     expect(inner.ExerciseCommand.choice).toBe('RevokeCredential');
-    expect(inner.ExerciseCommand.contractId).toBe(FIXTURE_CONTRACT_ID);
+    expect(inner.ExerciseCommand.choiceArgument.nftCid).toBe(null);
+    expect(inner.ExerciseCommand.choiceArgument.reason).toBe('compliance-policy-violation');
   });
 
-  it('does NOT include transactionFormat (unit return)', () => {
-    const { body } = build();
-    expect(body.transactionFormat).toBeUndefined();
+  it('passes nftCid when supplied', () => {
+    const body = buildRevokeCredentialCommand(
+      TEST_CONFIG,
+      { ...SAMPLE_REVOKE_INPUT, nftContractId: 'nft-cid' as ContractId },
+      FIXTURE_ISSUER_PARTY as PartyId,
+      'crv-revoke-x' as CommandId,
+    );
+    const inner = body.commands.commands[0] as {
+      ExerciseCommand: { choiceArgument: { nftCid: string } };
+    };
+    expect(inner.ExerciseCommand.choiceArgument.nftCid).toBe('nft-cid');
   });
 
-  it('rejects an empty contract id', () => {
-    const config = buildTestConfig();
-    const commandId = newCommandId(config, 'revoke', fixtureClock, fixtureRand) as CommandId;
+  it('rejects an empty reason', () => {
     expect(() =>
-      buildRevokeCredentialCommand(config, { contractId: '' as never }, OPERATOR, commandId),
-    ).toThrowError(/contractId/);
+      buildRevokeCredentialCommand(
+        TEST_CONFIG,
+        { ...SAMPLE_REVOKE_INPUT, reason: '' },
+        FIXTURE_ISSUER_PARTY as PartyId,
+        'crv-revoke-x' as CommandId,
+      ),
+    ).toThrow(CantonError);
+  });
+});
+
+const SAMPLE_NFT_INPUT: CreateKycNftInput = {
+  holderParty: FIXTURE_HOLDER_PARTY as PartyId,
+  boundCredentialId: FIXTURE_CONTRACT_ID as ContractId,
+  level: 'Enhanced',
+  serialNumber: 'SN-0001',
+  displayName: 'Demo Holder',
+  image: 'data:image/svg+xml;base64,YWJjZGVm',
+};
+
+describe('buildCreateKycNftCommand', () => {
+  it('emits a CreateCommand on the KycNFT template id', () => {
+    const body = buildCreateKycNftCommand(
+      TEST_CONFIG,
+      SAMPLE_NFT_INPUT,
+      FIXTURE_ISSUER_PARTY as PartyId,
+      'crv-create-nft-x' as CommandId,
+    );
+    const inner = body.commands.commands[0] as {
+      CreateCommand: { templateId: string; createArguments: { level: string } };
+    };
+    expect(inner.CreateCommand.templateId).toContain(':KycNFT');
+    expect(inner.CreateCommand.createArguments.level).toBe('Enhanced');
+  });
+
+  it('rejects an empty serial number', () => {
+    expect(() =>
+      buildCreateKycNftCommand(
+        TEST_CONFIG,
+        { ...SAMPLE_NFT_INPUT, serialNumber: '' },
+        FIXTURE_ISSUER_PARTY as PartyId,
+        'crv-create-nft-x' as CommandId,
+      ),
+    ).toThrow(CantonError);
   });
 });

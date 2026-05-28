@@ -1,6 +1,5 @@
 // @vitest-environment node
 
-
 import type { CantonClient, CredentialView, VerifyCredentialResult } from '@canton-vc/core';
 import { describe, expect, it, vi } from 'vitest';
 import { verifyDisclosure } from '../src/canton';
@@ -8,19 +7,21 @@ import { CantonVcOauthError } from '../src/errors';
 import type { CantonVcClaims } from '../src/types';
 
 const FIXTURE_VIEW: CredentialView = Object.freeze({
-  userRef: 'Customer-19b69f4d-df6b-40f9-becc-30f3bb00cbf1',
-  proofHash: 'f64293282671f911d9adf6caf9320f3946abd5f51d269b49285a318f0d8871b8',
-  status: 'Active',
-  level: 'Enhanced',
-  validUntil: '2027-05-10T22:37:24Z',
-  network: 'Canton Devnet',
-  humanScore: 0,
-  validator: 'DiditValidator',
-  identityVerified: true,
-  livenessVerified: true,
-  addressVerified: true,
-  isActive: true,
-  proofSchemaId: 'cafebabe1234567890abcdef',
+  admin: 'Admin::1220abc' as CredentialView['admin'],
+  issuer: 'Issuer::1220abc' as CredentialView['issuer'],
+  holder: 'Holder::1220abc' as CredentialView['holder'],
+  claims: {
+    values: {
+      'com.example/userRef': 'Customer-19b69f4d-df6b-40f9-becc-30f3bb00cbf1',
+      'com.example/level': 'Enhanced',
+    },
+    validFrom: null,
+    validUntil: '2027-05-10T22:37:24Z',
+    meta: {},
+  },
+  createdAt: '2026-05-10T22:37:24Z',
+  expiresAt: '2027-05-10T22:37:24Z',
+  meta: {},
 });
 
 function buildClaimsWithBundle(): CantonVcClaims {
@@ -40,7 +41,6 @@ function buildClaimsWithBundle(): CantonVcClaims {
 
 function buildMockCantonClient(
   result: VerifyCredentialResult = {
-    verified: true,
     view: FIXTURE_VIEW,
     contractId: 'contract-fixture' as VerifyCredentialResult['contractId'],
     commandId: 'cmd-fixture' as VerifyCredentialResult['commandId'],
@@ -52,26 +52,28 @@ function buildMockCantonClient(
   verifySpy: ReturnType<typeof vi.fn>;
 } {
   const verifySpy = vi.fn(async () => result);
-  // Type-assert through `unknown` — we only exercise `verifyCredential`.
   const client = { verifyCredential: verifySpy } as unknown as CantonClient;
   return { client, verifySpy };
 }
+
+const VERIFY_OPTS = {
+  actor: 'AcmeFirm::1220abc',
+  expectedAdmin: 'Admin::1220abc',
+};
 
 describe('verifyDisclosure', () => {
   it('returns the on-chain CredentialView when the claims carry a full bundle', async () => {
     const claims = buildClaimsWithBundle();
     const { client, verifySpy } = buildMockCantonClient();
 
-    const view = await verifyDisclosure(claims, {
-      canton: client,
-      fetcher: 'AcmeFirm::1220abc',
-    });
+    const view = await verifyDisclosure(claims, { canton: client, ...VERIFY_OPTS });
 
     expect(view).toBe(FIXTURE_VIEW);
     expect(verifySpy).toHaveBeenCalledTimes(1);
     expect(verifySpy).toHaveBeenCalledWith({
       contractId: claims.canton_vc_contract_id,
-      fetcher: 'AcmeFirm::1220abc',
+      actor: VERIFY_OPTS.actor,
+      expectedAdmin: VERIFY_OPTS.expectedAdmin,
       disclosedBlobBase64: claims.canton_vc_credential_blob,
     });
   });
@@ -82,7 +84,7 @@ describe('verifyDisclosure', () => {
     const { client, verifySpy } = buildMockCantonClient();
 
     await expect(
-      verifyDisclosure(claims, { canton: client, fetcher: 'AcmeFirm::1220abc' }),
+      verifyDisclosure(claims, { canton: client, ...VERIFY_OPTS }),
     ).rejects.toMatchObject({
       name: 'CantonVcOauthError',
       code: 'disclosure_blob_missing',
@@ -96,7 +98,7 @@ describe('verifyDisclosure', () => {
     const { client, verifySpy } = buildMockCantonClient();
 
     await expect(
-      verifyDisclosure(claims, { canton: client, fetcher: 'AcmeFirm::1220abc' }),
+      verifyDisclosure(claims, { canton: client, ...VERIFY_OPTS }),
     ).rejects.toBeInstanceOf(CantonVcOauthError);
     expect(verifySpy).not.toHaveBeenCalled();
   });
@@ -107,7 +109,7 @@ describe('verifyDisclosure', () => {
     const { client, verifySpy } = buildMockCantonClient();
 
     await expect(
-      verifyDisclosure(claims, { canton: client, fetcher: 'AcmeFirm::1220abc' }),
+      verifyDisclosure(claims, { canton: client, ...VERIFY_OPTS }),
     ).rejects.toMatchObject({
       name: 'CantonVcOauthError',
       code: 'disclosure_contract_id_missing',
@@ -121,7 +123,7 @@ describe('verifyDisclosure', () => {
     const { client, verifySpy } = buildMockCantonClient();
 
     await expect(
-      verifyDisclosure(claims, { canton: client, fetcher: 'AcmeFirm::1220abc' }),
+      verifyDisclosure(claims, { canton: client, ...VERIFY_OPTS }),
     ).rejects.toMatchObject({
       name: 'CantonVcOauthError',
       code: 'disclosure_contract_id_missing',
@@ -137,29 +139,8 @@ describe('verifyDisclosure', () => {
     });
     const client = { verifyCredential: verifySpy } as unknown as CantonClient;
 
-    await expect(
-      verifyDisclosure(claims, { canton: client, fetcher: 'AcmeFirm::1220abc' }),
-    ).rejects.toBe(cantonError);
-  });
-
-  it('does NOT post-check view.isActive — policy stays at the call site', async () => {
-    const claims = buildClaimsWithBundle();
-    const inactiveView: CredentialView = { ...FIXTURE_VIEW, isActive: false, status: 'Revoked' };
-    const { client } = buildMockCantonClient({
-      verified: true,
-      view: inactiveView,
-      contractId: 'contract-fixture' as VerifyCredentialResult['contractId'],
-      commandId: 'cmd-fixture' as VerifyCredentialResult['commandId'],
-      updateId: 'update-fixture' as VerifyCredentialResult['updateId'],
-      recordTime: '2026-05-10T00:00:00Z',
-    });
-
-    const view = await verifyDisclosure(claims, {
-      canton: client,
-      fetcher: 'AcmeFirm::1220abc',
-    });
-
-    expect(view.isActive).toBe(false);
-    expect(view.status).toBe('Revoked');
+    await expect(verifyDisclosure(claims, { canton: client, ...VERIFY_OPTS })).rejects.toBe(
+      cantonError,
+    );
   });
 });

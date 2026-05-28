@@ -39,10 +39,10 @@ import {
 
 import {
   buildTestConfig,
+  FIXTURE_HOLDER_PARTY as FIXTURE_USER_PARTY,
+  FIXTURE_ISSUER_PARTY as FIXTURE_OPERATOR_PARTY,
   FIXTURE_NAMESPACE,
-  FIXTURE_OPERATOR_PARTY,
   FIXTURE_PARTICIPANT_ID,
-  FIXTURE_USER_PARTY,
 } from './fixtures';
 
 describe('parsePartyId', () => {

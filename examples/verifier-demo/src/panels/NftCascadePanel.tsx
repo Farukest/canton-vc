@@ -1,6 +1,12 @@
 import { useState } from 'react';
 
-import type { ContractId, CreateCredentialInput, CredentialView, PartyId } from '@canton-vc/core';
+import type {
+  Claims,
+  ContractId,
+  CreateCredentialInput,
+  CredentialView,
+  PartyId,
+} from '@canton-vc/core';
 import { verifyDisclosure } from '@canton-vc/credential';
 
 import { asCantonClient, getMockCanton } from '../lib/mock-canton.js';
@@ -13,6 +19,8 @@ interface PanelState {
   readonly viewBefore: CredentialView;
   readonly viewAfter: CredentialView | null;
 }
+
+const DEMO_NS = 'com.example';
 
 const SVG_PLACEHOLDER =
   'data:image/svg+xml;base64,' +
@@ -40,42 +48,56 @@ export function NftCascadePanel() {
       const userRef = `nft-${Date.now().toString(36)}`;
       const session = await provider.startSession({ userRef, workflow: 'identity' });
       const decision = await provider.fetchDecision(session.sessionId);
-      const userParty = await canton.allocateParty(`NftUser${Date.now().toString(36)}`);
+      const issuerParty = await canton.allocateParty(`NftIssuer${Date.now().toString(36)}`);
+      const holderParty = await canton.allocateParty(`NftHolder${Date.now().toString(36)}`);
+      const expiresAt = decision.expiresAt.replace(/\.\d+Z$/, 'Z');
+      const claims: Claims = {
+        values: {
+          [`${DEMO_NS}/userRef`]: decision.userRef,
+          [`${DEMO_NS}/proofHash`]: decision.proofHash,
+          [`${DEMO_NS}/proofSchemaId`]: decision.proofSchemaId,
+          [`${DEMO_NS}/level`]: 'Enhanced',
+          [`${DEMO_NS}/status`]: 'Active',
+          [`${DEMO_NS}/humanScore`]: '95',
+          [`${DEMO_NS}/validator`]: 'GenericValidator',
+          [`${DEMO_NS}/identityVerified`]: 'true',
+          [`${DEMO_NS}/livenessVerified`]: 'true',
+          [`${DEMO_NS}/addressVerified`]: 'true',
+          [`${DEMO_NS}/network`]: 'mock',
+        },
+        validFrom: null,
+        validUntil: expiresAt,
+        meta: {},
+      };
       const input: CreateCredentialInput = {
-        userParty,
-        userRef: decision.userRef,
-        proofHash: decision.proofHash,
-        proofSchemaId: decision.proofSchemaId,
-        status: 'active',
-        level: 'enhanced',
-        validUntil: decision.expiresAt.replace(/\.\d+Z$/, 'Z'),
-        humanScore: 95,
-        validator: 'generic',
-        identityVerified: true,
-        livenessVerified: true,
-        addressVerified: true,
+        issuerParty,
+        holderParty,
+        adminParty: issuerParty,
+        claims,
+        expiresAt,
+        meta: {},
       };
       const credMint = await canton.createCredential(input);
 
       // 2. Mint the soulbound KycNFT bound to the credential.
       const nftMint = await canton.createKycNft({
-        customerParty: userParty,
+        holderParty,
         boundCredentialId: credMint.contractId,
-        level: 'enhanced',
+        level: 'Enhanced',
         serialNumber: `serial-${Date.now().toString(36)}`,
         displayName: `canton-vc demo NFT (${userRef})`,
         image: SVG_PLACEHOLDER,
       });
 
       // 3. Verify the credential to read its current view.
-      const fetcher = (await canton.allocateParty('VerifierFirm')) as PartyId;
+      const actor = (await canton.allocateParty('VerifierFirm')) as PartyId;
       const blob = canton.getBlob(credMint.contractId) ?? '';
       const viewBefore = await verifyDisclosure(
         {
           canton_vc_credential_blob: blob,
           canton_vc_contract_id: credMint.contractId,
         },
-        { canton: asCantonClient(canton), fetcher },
+        { canton: asCantonClient(canton), actor, expectedAdmin: issuerParty },
       );
 
       setState({
@@ -103,16 +125,18 @@ export function NftCascadePanel() {
       await canton.revokeCredential({
         contractId: state.credentialId,
         nftContractId: state.nftId,
+        reason: 'compliance-policy',
       });
 
-      const fetcher = (await canton.allocateParty('VerifierFirm')) as PartyId;
+      const actor = (await canton.allocateParty('VerifierFirm')) as PartyId;
       const blob = canton.getBlob(state.credentialId) ?? '';
+      const expectedAdmin = state.viewBefore.admin;
       const viewAfter = await verifyDisclosure(
         {
           canton_vc_credential_blob: blob,
           canton_vc_contract_id: state.credentialId,
         },
-        { canton: asCantonClient(canton), fetcher },
+        { canton: asCantonClient(canton), actor, expectedAdmin },
       );
 
       setState({ ...state, viewAfter });

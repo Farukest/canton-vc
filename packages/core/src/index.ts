@@ -1,17 +1,16 @@
 /**
- * Canton V2 JSON Ledger client — public surface.
+ * Canton V2 JSON Ledger client — public surface (v2.0.0).
  *
  * Consumers should import from the package root (`@canton-vc/core`)
  * rather than reaching into individual files. The barrel re-exports
  * every type, constant, and function that belongs to the public
- * contract of the library — internal helpers used only by one module
- * stay unexported.
+ * contract of the library — internal helpers stay unexported.
  *
  * Layering:
  *
  *   * `errors`   — single error class + code union
  *   * `config`   — env-backed Zod config with per-process cache
- *   * `types`    — branded identifiers + Daml/DB enum mappings + payload types
+ *   * `types`    — branded identifiers + CIP #204 data shapes + claim accessors
  *   * `schemas`  — Zod schemas for V2 API response shapes
  *   * `party`    — party-id parsing + namespace resolution cache
  *   * `http`     — `fetch` wrapper with timeout, retry, error mapping
@@ -22,7 +21,6 @@
  *   * `explorer` — public-explorer URL builders (ccview.io defaults)
  */
 
-
 export type { CantonClientOptions } from './client';
 export {
   buildCantonClientFromEnv,
@@ -31,7 +29,7 @@ export {
   resetCantonClientForTests,
 } from './client';
 export type {
-  CreateKycCredentialArguments,
+  CreateCredentialArguments,
   CreateKycNftArguments,
   DisclosedContract,
   SubmitAndWaitRequestBody,
@@ -101,10 +99,10 @@ export {
 } from './proof-hash';
 export {
   fetchDisclosureBundleByContractId,
-  fetchDisclosureBundleByUser,
+  fetchDisclosureBundleByHolder,
   fetchKycNftByContractId,
   findActiveCredentialByContractId,
-  findActiveCredentialByUser,
+  findActiveCredentialByHolder,
   findActiveKycNftByCredentialId,
   listActiveCredentials,
 } from './query';
@@ -112,9 +110,11 @@ export type {
   ActiveContractEntryWire,
   ActiveContractsResponse,
   CantonApiError,
+  CantonCredentialPayloadWire,
+  ClaimsWire,
   CreatedEventWire,
+  CredentialViewWire,
   ExercisedEventWire,
-  KycCredentialPayloadWire,
   KycNftPayloadWire,
   LedgerEndResponse,
   ParticipantIdResponse,
@@ -126,48 +126,42 @@ export type {
 export {
   ActiveContractsResponseSchema,
   CantonApiErrorSchema,
+  CredentialViewSchema,
   LedgerEndResponseSchema,
   ParticipantIdResponseSchema,
   PartyAllocationResponseSchema,
   PartyLookupResponseSchema,
-  parseKycCredentialPayload,
+  parseCredentialPayload,
   parseKycNftPayload,
   SubmitAndWaitResponseSchema,
 } from './schemas';
 export type {
   ActiveContract,
   Brand,
-  CanonicalNetwork,
   CantonCredentialPayload,
+  Claims,
   CommandId,
   ContractId,
   CreateCredentialInput,
   CreateCredentialResult,
   CreateKycNftInput,
   CreateKycNftResult,
-  CredentialStatus,
   CredentialView,
-  DamlCredentialStatus,
-  DamlKycLevel,
-  DamlValidatorType,
   DisclosureBundle,
-  KycLevel,
   KycNftPayload,
   LedgerOffset,
+  Metadata,
   PartyId,
   RevokeCredentialInput,
   RevokeCredentialResult,
   TemplateId,
   UpdateId,
-  Validator,
   VerifyCredentialInput,
   VerifyCredentialResult,
 } from './types';
 export {
-  DAML_TO_DB_LEVEL,
-  DAML_TO_DB_STATUS,
-  DAML_TO_DB_VALIDATOR,
-  DB_TO_DAML_LEVEL,
-  DB_TO_DAML_STATUS,
-  DB_TO_DAML_VALIDATOR,
+  getBoolClaim,
+  getClaim,
+  getIntClaim,
+  isWithinValidityWindow,
 } from './types';

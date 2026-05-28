@@ -1,5 +1,5 @@
 /**
- * Zod schemas for the Canton V2 JSON Ledger API wire shapes.
+ * Zod schemas for the Canton V2 JSON Ledger API wire shapes — v2.0.0.
  *
  * Every response the client receives from the participant is parsed
  * through one of these schemas before the value is handed to callers.
@@ -9,24 +9,20 @@
  *   * Participant-side bugs that return 200 with an unexpected body.
  *   * Accidental plaintext proxying of an HTML error page.
  *
- * Schemas here are intentionally conservative: they accept exactly
- * what we need and nothing more, and they use `.passthrough()` only
- * where the participant legitimately attaches optional diagnostic
+ * The schemas validate exactly what we need and use `.passthrough()`
+ * only where the participant legitimately attaches optional diagnostic
  * fields we don't want to reject.
  *
- * The schemas cover the V2 endpoints listed in `PLAN.md` §15 that the
- * Canton client actually uses:
- *
- *   * `GET  /v2/parties/participant-id`  (namespace bootstrap)
- *   * `GET  /v2/parties/{partyId}`        (existence check)
- *   * `POST /v2/parties`                  (allocate)
- *   * `GET  /v2/state/ledger-end`         (offset)
- *   * `POST /v2/state/active-contracts`   (ACS query)
- *   * `POST /v2/commands/submit-and-wait-for-transaction` (create/verify/revoke)
- *
- * Nothing here validates our *outgoing* request bodies — those are
- * built with exact type-safety in `commands.ts`. These schemas only
- * validate what we receive.
+ * v2.0.0 SHAPE CHANGES (CIP #204 alignment):
+ *   * Credential payload moved from flat v1.1.0 fields
+ *     (`operator/user/userRef/proofHash/level/...`) to the #204
+ *     structural shape (`issuer/holder/admin/claims/createdAt/
+ *     expiresAt/meta`). All Crivacy-specific fields live inside
+ *     `claims.values` under the `io.crivacy/*` reverse-DNS namespace.
+ *   * `CredentialView` from the `Verify` choice is replaced by the
+ *     `CredentialView` returned by `Credential_PublicFetch`. Shape
+ *     is byte-identical to the template payload (since it's the
+ *     interface's `viewtype`).
  */
 
 import { z } from 'zod';
@@ -34,42 +30,14 @@ import { z } from 'zod';
 /* ---------- Primitives ---------- */
 
 /**
- * Canton offset. Wire shape varies by endpoint and Canton version:
- *
- *   * `/v2/state/ledger-end` historically returns a hex-zero-padded
- *     string (`"000000000000000001"`).
- *   * `/v2/commands/submit-and-wait-for-transaction` (Canton 3.x v2
- *     JSON Ledger API) emits the transaction offset as a JSON
- *     **number** because the underlying Daml-LF type is `Long`.
- *
- * Accepting both shapes and normalizing to `string` keeps the
- * downstream `LedgerOffset` brand consistent and lets future
- * Canton versions flip an endpoint's encoding without breaking the
- * client. The `.pipe(z.string()…)` re-validates length after
- * coercion so the bound (1..1024) still applies.
+ * Canton offset. Wire shape varies by endpoint and Canton version.
+ * See v1.1.0 schemas for the historical reasoning; behaviour
+ * unchanged in v2.0.0.
  */
 const OffsetString = z
   .union([z.string().min(1).max(1024), z.number().int().nonnegative()])
   .transform((v) => (typeof v === 'number' ? String(v) : v))
   .pipe(z.string().min(1).max(1024));
-
-/**
- * Daml `Int` field. Canton 3.x serializes 64-bit `Long` values as
- * **strings** in JSON to preserve precision beyond JS `Number`'s
- * 53-bit safe range; older versions and some endpoints emit them as
- * JSON numbers. We accept either shape and normalize to a JS `number`
- * for the consumer.
- *
- * NOTE: this is only safe for fields whose value range fits in a JS
- * `number` without loss (e.g. `humanScore: 0..100`,
- * `reassignmentCounter` in early ACS state). For unbounded `Long`
- * fields prefer to keep the string and parse with `BigInt` at the
- * call site.
- */
-const DamlIntCoercedToNumber = z
-  .union([z.number(), z.string().regex(/^-?\d+$/, 'Daml Int must be an integer')])
-  .transform((v) => (typeof v === 'string' ? Number(v) : v))
-  .pipe(z.number().int());
 
 /**
  * Party identifier string. We do structural validation (contains
@@ -79,8 +47,7 @@ const DamlIntCoercedToNumber = z
 const PartyString = z.string().min(1).max(512);
 
 /**
- * Contract id — participant format is a long hex string. We bound the
- * length generously so future protocol tweaks don't break us.
+ * Contract id — participant format is a long hex string.
  */
 const ContractIdString = z.string().min(1).max(8192);
 
@@ -90,11 +57,16 @@ const ContractIdString = z.string().min(1).max(8192);
 const TemplateIdString = z.string().min(1).max(1024);
 
 /**
- * ISO 8601 datetime with a `Z` suffix — the participant always emits
- * UTC. Any non-matching string is rejected so we never silently
- * propagate a local-time record.
+ * ISO 8601 datetime with a `Z` suffix. Participant emits UTC.
  */
 const IsoDateTime = z.iso.datetime();
+
+/**
+ * Daml `Optional Time` → JSON. Encodes as the datetime string or
+ * `null`. Used for `createdAt`, `expiresAt`, `claims.validFrom`,
+ * `claims.validUntil`.
+ */
+const OptionalIsoDateTime = z.union([IsoDateTime, z.null()]);
 
 /**
  * Base64 string (RFC 4648). Used for `createdEventBlob` and any
@@ -103,205 +75,148 @@ const IsoDateTime = z.iso.datetime();
 const Base64String = z
   .string()
   .min(1)
-  .max(2_097_152) // 2 MiB cap — blob larger than this is almost certainly malformed
+  .max(2_097_152) // 2 MiB cap
   .regex(/^[A-Za-z0-9+/=_-]+$/, {
     message: 'Must be a base64 (or base64url) encoded string.',
   });
 
-/* ---------- `/v2/parties/participant-id` ---------- */
-
 /**
- * Bootstrap endpoint: returns the participant's own party id, which
- * we split on `::` to pull the fingerprint (namespace) used for
- * constructing operator + user party IDs.
- *
- * Response:
- *
- *     { "participantId": "participant::122012ab…" }
+ * Daml `TextMap Text` on the wire — JSON object with string keys and
+ * string values. Used for `claims.values`, `claims.meta`, and the
+ * template `meta` field.
  */
+const TextMapStringSchema = z.record(z.string().min(1).max(512), z.string().max(8192));
+
+/* ---------- `/v2/parties/participant-id` (unchanged) ---------- */
+
 export const ParticipantIdResponseSchema = z
-  .object({
-    participantId: PartyString,
-  })
+  .object({ participantId: PartyString })
   .passthrough();
 
 export type ParticipantIdResponse = z.infer<typeof ParticipantIdResponseSchema>;
 
-/* ---------- `/v2/parties/{partyId}` ---------- */
+/* ---------- `/v2/parties/{partyId}` (unchanged) ---------- */
 
-/**
- * Single party-details entry returned when we look up a party by id.
- * The participant returns an array (possibly empty) under
- * `partyDetails`.
- */
 const PartyDetailsSchema = z
   .object({
     party: PartyString,
     isLocal: z.boolean().optional(),
-    // Additional fields like `displayName`, `localMetadata`, and
-    // `identityProviderId` vary by participant version — ignored.
   })
   .passthrough();
 
 export const PartyLookupResponseSchema = z
-  .object({
-    partyDetails: z.array(PartyDetailsSchema),
-  })
+  .object({ partyDetails: z.array(PartyDetailsSchema) })
   .passthrough();
 
 export type PartyLookupResponse = z.infer<typeof PartyLookupResponseSchema>;
 
-/* ---------- `POST /v2/parties` (allocate) ---------- */
-
-/**
- * Allocation success response. Canton 3.x returns a single
- * `partyDetails` object (not an array) with the full participant-
- * qualified party id.
- */
 export const PartyAllocationResponseSchema = z
-  .object({
-    partyDetails: PartyDetailsSchema,
-  })
+  .object({ partyDetails: PartyDetailsSchema })
   .passthrough();
 
 export type PartyAllocationResponse = z.infer<typeof PartyAllocationResponseSchema>;
 
-/* ---------- `/v2/state/ledger-end` ---------- */
+/* ---------- `/v2/state/ledger-end` (unchanged) ---------- */
 
-/**
- * Current ledger end offset. The participant returns the offset as
- * a string (opaque). Used for `activeAtOffset` queries so we read a
- * consistent snapshot.
- */
 export const LedgerEndResponseSchema = z
-  .object({
-    offset: OffsetString,
-  })
+  .object({ offset: OffsetString })
   .passthrough();
 
 export type LedgerEndResponse = z.infer<typeof LedgerEndResponseSchema>;
 
-/* ---------- Created / Exercised events ---------- */
+/* ---------- CIP #204 `Claims` payload ---------- */
 
 /**
- * `createArgument` is the Daml payload inside a CreatedEvent. Every
- * field matches the `Canton.VC.Credential` template on a 1:1 basis.
- * Extra fields are ignored so a schema upgrade is non-breaking for
- * consumers that only read the core fields we care about.
+ * On-wire shape of the Daml `Claims` record. Mirrors
+ * `Cip204.Standard.Claims` 1:1.
  *
- * `validUntil` is emitted as an ISO 8601 timestamp string
- * (`YYYY-MM-DDTHH:MM:SS[.sss]Z`) by the participant — the Daml
- * template stores it as `Time`. `humanScore` is a Daml `Int`,
- * encoded by Canton 3.x as a JSON string for precision
- * preservation; `DamlIntCoercedToNumber` normalizes to `number`
- * downstream and pins the 0..100 invariant. The three `*Verified`
- * flags are Daml `Bool`.
+ *   * `values` — TextMap of `<namespace>/<property>` → text. Adapters
+ *     read individual entries via `getCrivacyClaim` after the schema
+ *     has validated the overall shape.
+ *   * `validFrom` / `validUntil` — Optional Time on chain; `null` or
+ *     ISO datetime on the wire.
+ *   * `meta` — TextMap for non-business metadata.
  */
-const KycCredentialPayloadSchema = z
+const ClaimsSchema = z
   .object({
-    operator: PartyString,
-    user: PartyString,
-    // the predecessor template version added `userRef` to the on-chain
-    // payload. Bound to 128 chars — same ceiling enforced by
-    // `kyc_sessions.user_ref` and the command builder.
-    userRef: z.string().min(1).max(128),
-    proofHash: z.string().min(1).max(512),
-    status: z.enum(['Pending', 'Active', 'Revoked', 'Expired']),
-    // the level enum collapsed to {Basic, Enhanced}. The
-    // intermediate Standard tier was retired in the same release.
-    level: z.enum(['Basic', 'Enhanced']),
-    validUntil: z.iso.datetime(),
-    network: z.string().min(1).max(128),
-    humanScore: DamlIntCoercedToNumber.pipe(z.number().int().min(0).max(100)),
-    validator: z.enum([
-      'DiditValidator',
-      'OnfidoValidator',
-      'PersonaValidator',
-      'SumsubValidator',
-      'VeriffValidator',
-      'Au10tixValidator',
-      'JumioValidator',
-      'ZkValidator',
-      'Generic',
-    ]),
-    identityVerified: z.boolean(),
-    livenessVerified: z.boolean(),
-    addressVerified: z.boolean(),
-    // v1.1.0 addition. `Optional Text` on the chain → `string | null`
-    // on the wire. New mints under v1.1.0+ MUST carry a non-empty
-    // string; legacy v1.0.0 contracts surface as `null` here.
-    proofSchemaId: z.string().nullable().optional(),
+    values: TextMapStringSchema,
+    validFrom: OptionalIsoDateTime,
+    validUntil: OptionalIsoDateTime,
+    meta: TextMapStringSchema,
   })
   .passthrough();
 
-export type KycCredentialPayloadWire = z.infer<typeof KycCredentialPayloadSchema>;
+export type ClaimsWire = z.infer<typeof ClaimsSchema>;
+
+/* ---------- `Canton.VC.Credential` template payload (v2.0.0) ---------- */
 
 /**
- * Re-parse a `createArgument` value as a `KycCredentialPayload`. Used
- * by `query.ts::hydrateActiveContract` once the ACS query has filtered
- * to credential templateIds. Throws on shape drift.
+ * On-wire shape of the `Canton.VC.Credential` template payload —
+ * the CIP #204 structural shape. Application-specific claim values
+ * live inside `claims.values` under the application's reverse-DNS
+ * namespace; the SDK does not opine on naming.
+ *
+ *   * `issuer` / `holder` — joint signatories per CIP #204.
+ *   * `admin` — disclosure authority (equals `issuer` in custodian
+ *     deployments).
+ *   * `claims` — see `ClaimsSchema`.
+ *   * `createdAt` / `expiresAt` — Optional Time.
+ *   * `meta` — TextMap for non-business metadata.
  */
-export function parseKycCredentialPayload(raw: unknown): KycCredentialPayloadWire {
-  return KycCredentialPayloadSchema.parse(raw);
+const CantonCredentialPayloadSchema = z
+  .object({
+    issuer: PartyString,
+    holder: PartyString,
+    admin: PartyString,
+    claims: ClaimsSchema,
+    createdAt: OptionalIsoDateTime,
+    expiresAt: OptionalIsoDateTime,
+    meta: TextMapStringSchema,
+  })
+  .passthrough();
+
+export type CantonCredentialPayloadWire = z.infer<typeof CantonCredentialPayloadSchema>;
+
+/**
+ * Re-parse a `createArgument` value as a `Canton.VC.Credential`
+ * payload. Used by `query.ts::hydrateActiveContract` once the ACS
+ * query has filtered to credential templateIds. Throws on shape
+ * drift.
+ */
+export function parseCredentialPayload(raw: unknown): CantonCredentialPayloadWire {
+  return CantonCredentialPayloadSchema.parse(raw);
 }
 
 /**
- * `CredentialView` returned by the `Verify` choice. Wire
- * shape mirrors `KycCredentialPayloadSchema` plus a server-evaluated
- * `isActive` flag (`status == "Active" && now <= validUntil` per the
- * choice body — both sides of the comparison are Daml `Time`). Firms read every field of this struct
- * instead of trusting a sidecar JSON from the issuer — combined with
- * Canton's contract-authentication on the disclosed blob, the result
- * is a cryptographic guarantee the data was committed by the operator
- * at issuance time.
+ * On-wire shape of the `CredentialView` returned by
+ * `Credential_PublicFetch`. Identical to the template payload (the
+ * `viewtype` of the interface is `CredentialView` which mirrors
+ * the template fields).
+ *
+ * CIP #204 does not define an `isActive` flag. Lifecycle
+ * interpretation (active vs. expired vs. revoked) is implementer-
+ * defined; applications evaluate it client-side from `expiresAt`
+ * and any status claim they choose to encode under their own
+ * namespace.
  */
-export const KycCredentialViewSchema = z
-  .object({
-    userRef: z.string().min(1).max(128),
-    proofHash: z.string().min(1).max(512),
-    status: z.enum(['Pending', 'Active', 'Revoked', 'Expired']),
-    level: z.enum(['Basic', 'Enhanced']),
-    validUntil: z.iso.datetime(),
-    network: z.string().min(1).max(128),
-    humanScore: DamlIntCoercedToNumber.pipe(z.number().int().min(0).max(100)),
-    validator: z.enum([
-      'DiditValidator',
-      'OnfidoValidator',
-      'PersonaValidator',
-      'SumsubValidator',
-      'VeriffValidator',
-      'Au10tixValidator',
-      'JumioValidator',
-      'ZkValidator',
-      'Generic',
-    ]),
-    identityVerified: z.boolean(),
-    livenessVerified: z.boolean(),
-    addressVerified: z.boolean(),
-    isActive: z.boolean(),
-    // v1.1.0 addition. `Optional Text` on the chain → `string | null`
-    // on the wire. Verifiers SHOULD treat `null` as audit-incomplete
-    // (legacy v1.0.0 credential).
-    proofSchemaId: z.string().nullable().optional(),
-  })
-  .passthrough();
+export const CredentialViewSchema = CantonCredentialPayloadSchema;
 
-export type KycCredentialViewWire = z.infer<typeof KycCredentialViewSchema>;
+export type CredentialViewWire = z.infer<typeof CredentialViewSchema>;
+
+/* ---------- `KycNFT` payload (optional companion template) ---------- */
 
 /**
- * `Canton.VC.Credential.KycNFT` on-ledger payload (v1.1.0+). Mirrors
- * the Daml template fields 1:1. The `image` cap is set well above the
- * inline-SVG mint payload (~3 KB after sanitisation/base64) but bounded
- * to 350 KiB so a forge attempt can't tunnel an arbitrarily large blob
- * through the schema.
+ * On-wire shape of `Canton.VC.Credential.KycNFT`. Optional soulbound
+ * companion template — NOT part of CIP #204. `level` is application-
+ * defined (the DAML template ensure clause only checks non-empty).
  */
 const KycNftPayloadSchema = z
   .object({
-    operator: PartyString,
+    issuer: PartyString,
     customer: PartyString,
     boundCredentialId: ContractIdString,
-    issuedAt: z.iso.datetime(),
-    level: z.literal('Enhanced'),
+    issuedAt: IsoDateTime,
+    level: z.string().min(1).max(64),
     serialNumber: z.string().min(1).max(64),
     displayName: z.string().min(1).max(256),
     image: z.string().min(1).max(350_000),
@@ -314,30 +229,19 @@ export function parseKycNftPayload(value: unknown): KycNftPayloadWire {
   return KycNftPayloadSchema.parse(value);
 }
 
+/* ---------- Created / Exercised events (mostly unchanged) ---------- */
+
 /**
  * `CreatedEvent` as returned inside a transaction or an ACS entry.
- *
- * Fields relevant to us:
- *
- *   * `contractId` — what we persist as `canton_contract_id`.
- *   * `templateId` — used to assert we got back what we asked for.
- *   * `createArgument` — the template payload.
- *   * `createdEventBlob` — only present when the query asked for it
- *     (`includeCreatedEventBlob: true`) or the submit was configured
- *     to return blobs.
- *   * `signatories` / `observers` — party lists.
+ * `createArgument` stays `z.unknown()` so the same shape works for
+ * `Credential` and `KycNFT` mints. Template-specific parsers
+ * (`parseCredentialPayload`, `parseKycNftPayload`) re-parse
+ * downstream.
  */
 const CreatedEventSchema = z
   .object({
     contractId: ContractIdString,
     templateId: TemplateIdString,
-    // The submit-and-wait pipeline is shared between every template we
-    // mint — KycCredential, KycNFT, future siblings. Validating
-    // `createArgument` against a single template's schema here would
-    // reject every other mint's response. Callers that need the typed
-    // payload (`query.ts::hydrateActiveContract` for the credential
-    // ACS path) re-parse with the template-specific schema; the mint
-    // path only reads `contractId`, so a generic `unknown` is enough.
     createArgument: z.unknown(),
     createdEventBlob: z.union([Base64String, z.literal('')]).optional(),
     signatories: z.array(PartyString).optional(),
@@ -350,9 +254,10 @@ export type CreatedEventWire = z.infer<typeof CreatedEventSchema>;
 /**
  * `ExercisedEvent` — returned when we exercise a choice with the
  * `TRANSACTION_SHAPE_LEDGER_EFFECTS` shape set. `exerciseResult` is
- * the choice return value; for `Verify` it is a JSON `boolean`, for
- * consuming choices like `RevokeCredential` it is the Daml `Unit`
- * which serializes as `{}`.
+ * the choice return value. For `Credential_PublicFetch` it is the
+ * full `CredentialView` struct (re-parsed via `CredentialViewSchema`
+ * downstream); for `RevokeCredential` it is a new contract id;
+ * for consuming-only choices it is the Daml `Unit` (`{}`).
  */
 const ExercisedEventSchema = z
   .object({
@@ -368,9 +273,6 @@ export type ExercisedEventWire = z.infer<typeof ExercisedEventSchema>;
 
 /**
  * A transaction event as it appears inside `transaction.events[]`.
- * The participant wraps each event in a single-key object — either
- * `CreatedEvent` or `ExercisedEvent`. Archived events can also
- * appear for consuming choices but we don't read them directly.
  */
 const TransactionEventSchema = z
   .object({
@@ -381,17 +283,8 @@ const TransactionEventSchema = z
 
 export type TransactionEventWire = z.infer<typeof TransactionEventSchema>;
 
-/* ---------- `/v2/commands/submit-and-wait-for-transaction` ---------- */
+/* ---------- `/v2/commands/submit-and-wait-for-transaction` (unchanged) ---------- */
 
-/**
- * Submit response for create and exercise commands. `transaction`
- * carries the record time + ledger offset + event list; `updateId`
- * is the transaction identifier.
- *
- * We require the top-level `updateId` and a populated `transaction`
- * block with non-empty events. Anything else is rejected as an
- * invalid response.
- */
 const TransactionSchema = z
   .object({
     updateId: z.string().min(1).max(1024),
@@ -403,21 +296,13 @@ const TransactionSchema = z
   .passthrough();
 
 export const SubmitAndWaitResponseSchema = z
-  .object({
-    transaction: TransactionSchema,
-  })
+  .object({ transaction: TransactionSchema })
   .passthrough();
 
 export type SubmitAndWaitResponse = z.infer<typeof SubmitAndWaitResponseSchema>;
 
-/* ---------- `/v2/state/active-contracts` ---------- */
+/* ---------- `/v2/state/active-contracts` (unchanged) ---------- */
 
-/**
- * ACS entry wrapping a single active contract. The participant wraps
- * each active contract inside a `JsActiveContract` envelope under
- * `contractEntry`. Other entry types (`JsIncompleteAssigned`,
- * `JsIncompleteUnassigned`) exist but we filter them out.
- */
 const ActiveContractEntrySchema = z
   .object({
     contractEntry: z
@@ -426,9 +311,10 @@ const ActiveContractEntrySchema = z
           .object({
             createdEvent: CreatedEventSchema,
             synchronizerId: z.string().optional(),
-            // Same Daml `Long` precision concern as `humanScore` —
-            // accept either JSON encoding and normalize to number.
-            reassignmentCounter: DamlIntCoercedToNumber.optional(),
+            reassignmentCounter: z
+              .union([z.number(), z.string().regex(/^-?\d+$/)])
+              .transform((v) => (typeof v === 'string' ? Number(v) : v))
+              .optional(),
           })
           .passthrough()
           .optional(),
@@ -439,25 +325,12 @@ const ActiveContractEntrySchema = z
 
 export type ActiveContractEntryWire = z.infer<typeof ActiveContractEntrySchema>;
 
-/**
- * Top-level response of `/v2/state/active-contracts`. The participant
- * returns a bare JSON array (not an object wrapper), so the schema is
- * a plain array.
- */
 export const ActiveContractsResponseSchema = z.array(ActiveContractEntrySchema);
 
 export type ActiveContractsResponse = z.infer<typeof ActiveContractsResponseSchema>;
 
-/* ---------- Error body ---------- */
+/* ---------- Error body (unchanged) ---------- */
 
-/**
- * Structured error response shape emitted by the participant for 4xx
- * and 5xx conditions. We use it to extract a meaningful message; the
- * tests assert our mapping from this shape to `CantonErrorCode`.
- *
- * The fields here mirror what the Canton documentation pins down
- * (`docs/40-json-ledger-api-overview.md` §error-format).
- */
 export const CantonApiErrorSchema = z
   .object({
     cause: z.string().optional(),

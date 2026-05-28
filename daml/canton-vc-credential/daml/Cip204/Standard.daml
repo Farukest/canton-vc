@@ -1,0 +1,117 @@
+module Cip204.Standard where
+
+import DA.TextMap (TextMap)
+
+-- ────────────────────────────────────────────────────────────────────
+-- Cip204.Standard — local DAML copy of CIP #204 (Canton Network
+-- Credentials Standard, draft by Simon Meier).
+--
+-- We embed a local copy until the upstream `cip-204-credentials`
+-- package ships on Canton mainnet under a stable package id. Once
+-- that lands, this module is dropped and `interface instance` lines
+-- in implementers re-target the upstream interface verbatim — no
+-- API change to downstream verifiers, because the `viewtype` payload
+-- is byte-identical (`CredentialView`).
+--
+-- Spec mapping (per the draft PR, last refreshed 2026-05-28):
+--
+--   * Joint signatories MANDATORY (issuer + holder). Issuer-only
+--     templates are spec-incompatible. Reasoning: prevents the
+--     issuer from unilaterally creating a credential that the holder
+--     has not consented to.
+--
+--   * `admin` is the disclosure authority. A verifier requires the
+--     admin's signature on disclosed-contract metadata to trust the
+--     view. In a custodian model (e.g. Crivacy), admin == issuer.
+--
+--   * `Credential_PublicFetch` returns the view to ANY actor, but
+--     implementers MUST validate `expectedAdmin == admin` so a
+--     verifier can be sure the credential is from the issuer they
+--     expect (anti-substitution defence).
+--
+--   * `Credential_ArchiveAsHolder` is holder-controlled voluntary
+--     archive. Issuer-side compliance revoke is a separate non-
+--     standard choice on each implementer (see Crivacy's
+--     `RevokeCredential` in Canton.VC.Credential).
+--
+--   * Namespace convention for claim keys / metadata keys: Java-style
+--     reverse-DNS (e.g. `io.crivacy/level`). The `cip-<nr>/` prefix
+--     is reserved for keys defined by the standard itself.
+-- ────────────────────────────────────────────────────────────────────
+
+-- | Free-form key→value metadata bag. Keys MUST use reverse-DNS
+-- namespacing per CIP #204; this module does not enforce the
+-- convention at the chain level (it is a wire-format concern).
+type Metadata = TextMap Text
+
+-- | All claim values are TextMap-of-Text. Numeric / boolean / enum
+-- claims are encoded as text at the wire boundary; the consumer
+-- decodes per namespace convention. This keeps the standard
+-- interface stable across credential schemas without forcing
+-- downstream code to track a generic claim ADT.
+data Claims = Claims with
+    values : TextMap Text
+    validFrom : Optional Time
+    validUntil : Optional Time
+    meta : Metadata
+  deriving (Eq, Show)
+
+-- | The view that every CIP-#204 credential exposes to verifiers.
+-- Returned by `Credential_PublicFetch`, also the `viewtype` of the
+-- `Credential` interface (so off-ledger consumers can inspect the
+-- payload via the standard view-resolution API without exercising
+-- the choice).
+data CredentialView = CredentialView with
+    admin : Party
+    issuer : Party
+    holder : Party
+    claims : Claims
+    createdAt : Optional Time
+    expiresAt : Optional Time
+    meta : Metadata
+  deriving (Eq, Show)
+
+-- | Result of `Credential_ArchiveAsHolder`. The view of the
+-- now-archived credential is returned to the holder so a wallet UI
+-- can render a "you archived this credential at X" receipt without a
+-- second ledger query.
+data Credential_ArchiveAsHolderResult = Credential_ArchiveAsHolderResult with
+    archivedCredential : CredentialView
+    meta : Metadata
+  deriving (Eq, Show)
+
+-- | The standard CIP-#204 credential interface. Every Canton VC
+-- implementation provides `interface instance` for this on its
+-- credential template.
+interface Credential where
+  viewtype CredentialView
+
+  -- | Implementer hook for the holder-controlled archive path.
+  -- Called from `Credential_ArchiveAsHolder` after authorization.
+  archiveAsHolderImpl : Metadata -> Update Credential_ArchiveAsHolderResult
+
+  -- | Implementer hook for the public verify path. Receives the
+  -- `expectedAdmin` and `actor` from the choice arguments. The
+  -- implementer MUST `assertMsg` that `expectedAdmin == (view this).admin`
+  -- so the verifier cannot be confused into trusting a credential
+  -- with the wrong admin authority.
+  publicFetchImpl : Party -> Party -> Update CredentialView
+
+  -- | Holder-initiated voluntary archive. Distinct from the
+  -- standard DAML `Archive` choice in that it returns a structured
+  -- result with the now-archived view + caller-supplied metadata.
+  choice Credential_ArchiveAsHolder : Credential_ArchiveAsHolderResult
+    with
+      meta : Metadata
+    controller (view this).holder
+    do archiveAsHolderImpl this meta
+
+  -- | Public verify path. Any actor may exercise; the implementer
+  -- enforces the `expectedAdmin` match. Nonconsuming so multiple
+  -- verifications do not archive the credential.
+  nonconsuming choice Credential_PublicFetch : CredentialView
+    with
+      expectedAdmin : Party
+      actor : Party
+    controller actor
+    do publicFetchImpl this expectedAdmin actor

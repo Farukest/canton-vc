@@ -18,16 +18,19 @@
  * against a real Canton participant use the canton-vc repo's
  * `scripts/live-*-canton-*-e2e.ts` scripts.
  *
- * Run:
- *
- *     pnpm --filter @canton-vc/example-issuer-demo start
+ * The on-chain credential payload is the CIP #204 storage shape:
+ * `issuer / holder / admin / claims (TextMap) / createdAt /
+ * expiresAt / meta`. Application-specific KYC fields (level,
+ * validator, humanScore, *Verified flags) are encoded as text
+ * claim values under an application-chosen reverse-DNS namespace —
+ * here we use `com.example/*` for the demo.
  *
  * @module
  */
 
 import { config as loadDotenv } from 'dotenv';
 
-import type { CreateCredentialInput, Validator } from '@canton-vc/core';
+import type { Claims, CreateCredentialInput } from '@canton-vc/core';
 
 import { buildAdapter, resolveVendor, type VendorId } from './adapter-factory.js';
 import { MockCantonClient } from './mock-canton.js';
@@ -39,11 +42,17 @@ loadDotenv({ quiet: true });
 const POLL_INTERVAL_MS = 5_000;
 const MAX_POLL_MS = 30 * 60 * 1000;
 
-const VENDOR_TO_VALIDATOR: Readonly<Record<VendorId, Validator>> = Object.freeze({
-  mock: 'generic',
-  didit: 'didit',
-  sumsub: 'sumsub',
-  persona: 'persona',
+/**
+ * Demo namespace for claim keys. A real issuer would use their own
+ * reverse-DNS namespace (e.g. `io.acme/*`).
+ */
+const DEMO_NS = 'com.example';
+
+const VENDOR_TO_VALIDATOR_STRING: Readonly<Record<VendorId, string>> = Object.freeze({
+  mock: 'GenericValidator',
+  didit: 'DiditValidator',
+  sumsub: 'SumsubValidator',
+  persona: 'PersonaValidator',
 });
 
 function tag(phase: string): string {
@@ -64,10 +73,8 @@ async function main(): Promise<void> {
   console.log('  backend: in-memory Canton mock');
   console.log();
 
-  // Step 1 — build the vendor adapter.
   const provider = buildAdapter(vendor);
 
-  // Step 2 — open a session for a synthetic user.
   const userRef = `demo-${Date.now().toString(36)}`;
   console.log(tag('Step 1: provider.startSession({ workflow: "identity" })'));
   const session = await provider.startSession({ userRef, workflow: 'identity' });
@@ -84,7 +91,6 @@ async function main(): Promise<void> {
     console.log();
   }
 
-  // Step 3 — poll for the decision.
   console.log(tag('Step 2: provider.fetchDecision(sessionId)'));
   const started = Date.now();
   let decision = await provider.fetchDecision(session.sessionId);
@@ -120,7 +126,8 @@ async function main(): Promise<void> {
   const identityVerified = decision.evidence.identityVerified ?? false;
   const livenessVerified = decision.evidence.livenessVerified ?? false;
   const addressVerified = decision.evidence.addressVerified ?? false;
-  console.log(`  level:        ${decision.level ?? 'basic'}`);
+  const level = decision.level ?? 'basic';
+  console.log(`  level:        ${level}`);
   console.log(`  identity:     ${identityVerified}`);
   console.log(`  liveness:     ${livenessVerified}`);
   console.log(`  address:      ${addressVerified}`);
@@ -128,25 +135,40 @@ async function main(): Promise<void> {
   console.log(`  schemaId:     ${decision.proofSchemaId.slice(0, 32)}…`);
   console.log();
 
-  // Step 4 — mint against the in-memory Canton mock.
   console.log(tag('Step 3: canton.allocateParty() + canton.createCredential()'));
   const canton = new MockCantonClient();
-  const userParty = await canton.allocateParty(`demoUser${Date.now()}`);
-  const validUntil = decision.expiresAt.replace(/\.\d+Z$/, 'Z');
+  const issuerParty = await canton.allocateParty(`demoIssuer${Date.now()}`);
+  const holderParty = await canton.allocateParty(`demoHolder${Date.now()}`);
+  const expiresAt = decision.expiresAt.replace(/\.\d+Z$/, 'Z');
+
+  // Build the claim map. Application-defined namespacing — here we
+  // pick `com.example/*` as the demo's reverse-DNS prefix.
+  const claims: Claims = {
+    values: {
+      [`${DEMO_NS}/userRef`]: decision.userRef,
+      [`${DEMO_NS}/proofHash`]: decision.proofHash,
+      [`${DEMO_NS}/proofSchemaId`]: decision.proofSchemaId,
+      [`${DEMO_NS}/level`]: level === 'enhanced' ? 'Enhanced' : 'Basic',
+      [`${DEMO_NS}/status`]: 'Active',
+      [`${DEMO_NS}/humanScore`]: '95',
+      [`${DEMO_NS}/validator`]: VENDOR_TO_VALIDATOR_STRING[vendor],
+      [`${DEMO_NS}/identityVerified`]: identityVerified ? 'true' : 'false',
+      [`${DEMO_NS}/livenessVerified`]: livenessVerified ? 'true' : 'false',
+      [`${DEMO_NS}/addressVerified`]: addressVerified ? 'true' : 'false',
+      [`${DEMO_NS}/network`]: 'Canton (in-memory mock)',
+    },
+    validFrom: null,
+    validUntil: expiresAt,
+    meta: {},
+  };
 
   const input: CreateCredentialInput = {
-    userParty,
-    userRef: decision.userRef,
-    proofHash: decision.proofHash,
-    proofSchemaId: decision.proofSchemaId,
-    status: 'active',
-    level: decision.level ?? 'basic',
-    validUntil,
-    humanScore: 95,
-    validator: VENDOR_TO_VALIDATOR[vendor],
-    identityVerified,
-    livenessVerified,
-    addressVerified,
+    issuerParty,
+    holderParty,
+    adminParty: issuerParty,
+    claims,
+    expiresAt,
+    meta: {},
   };
   const result = await canton.createCredential(input);
   console.log(`  contractId:   ${result.contractId.slice(0, 32)}…`);
