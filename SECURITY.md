@@ -45,14 +45,22 @@ anonymous) and acknowledgement in the release notes.
   module (HMAC-SHA256, SHA-256, `timingSafeEqual`).
 - Webhook signature verification enforces a 5-minute timestamp
   drift window by default.
-- DAML templates enforce field invariants at the chain level
-  (`ensure` clauses on `Credential` + `KycNFT`), so a misconfigured
-  issuer cannot land a credential with empty `userRef`, out-of-range
-  `humanScore`, or invalid `status` / `level` strings.
-- The `Verify` choice on `Credential` is nonconsuming, so verifier
-  participants cannot mutate or archive a credential.
+- DAML templates enforce structural invariants at the chain level
+  (`ensure` clauses on `Canton.VC.Credential` + `KycNFT`) — the
+  credential template rejects an empty `claims.values` map, and
+  `KycNFT` rejects empty `level` / `serialNumber` / `displayName` /
+  `image` fields.
+- Joint signatory (`issuer + holder`) per CIP #204 means an issuer
+  cannot unilaterally mint a credential without the holder's
+  participant authorising the transaction.
+- The CIP #204 standard `Credential_PublicFetch` choice is
+  nonconsuming, so verifier participants cannot mutate or archive
+  a credential during verification. The implementer-side
+  `assertMsg expectedAdmin == admin` guard inside the choice body
+  rejects substituted credentials at the chain boundary.
 - The `KycNFT` template is soulbound at the DAML level — no
-  controller other than the operator can touch it.
+  controller other than the issuer can touch it; the holder is an
+  observer with no choice surface.
 - The verifier SDK (`@canton-vc/credential`) re-derives the
   `DisclosedContract.templateId` per-contract from the
   participant's ACS response, so a package upgrade on the issuer's

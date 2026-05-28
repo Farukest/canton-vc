@@ -60,9 +60,13 @@ Sumsub publishes an officially supported development path: the
 approval so the issuer can exercise the full adapter surface
 (`startSession` → `fetchDecision` → `verifyWebhook`) against the real
 Sumsub API without requiring a human to upload documents on every
-run. The repository's `scripts/live-sumsub-canton-e2e.ts` chains this
-through to a real Canton 3.4 participant — adapter → mint → revoke
-cascade are all exercised against live infrastructure end-to-end.
+run. The repository's `scripts/live-sumsub-canton-e2e-v2.ts` chains
+this through to a real Canton 3.4 participant — a 16-phase smoke
+running every DAML choice on the deployed DAR (`createCredential`,
+`Credential_PublicFetch`, `Credential_ArchiveAsHolder`,
+`RevokeCredential` cascade, `UpdateCredentials`, `createKycNft`,
+standalone `BurnNft`, wrong-admin reject) against live
+infrastructure end-to-end.
 
 ## Configuration reference
 

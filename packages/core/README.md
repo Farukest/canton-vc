@@ -13,18 +13,30 @@ Pure Canton protocol code: no database, no application state, no Drizzle / Postg
 |-------|--------|---------|
 | `errors` | single `CantonError` class + code union | typed failure surface |
 | `config` | `loadCantonConfig` + zod schema | env-backed client config |
-| `types` | branded ids + DAML/DB enum mappings | type safety across the boundary |
+| `types` | branded ids + CIP #204 data shapes + claim accessors | type safety across the boundary |
 | `schemas` | zod schemas for V2 API responses | wire validation |
 | `party` | party-id parsing + namespace cache | identity layer |
 | `http` | fetch wrapper with timeout + retry | transport |
 | `commands` | pure builders for V2 command bodies | request shaping |
-| `ledger` | high-level write ops (create / verify / revoke) | mint pipeline |
+| `ledger` | high-level write ops (create / verify / archive-as-holder / revoke / NFT mint+burn) | full credential lifecycle |
 | `query` | read ops (ACS + disclosure blob extraction) | post-mint inspection |
 | `client` | facade class + process singleton | one-stop entry point |
 
+## SDK surface (CIP #204 + implementer extensions)
+
+The `Canton.VC.Credential` template implements the `Cip204.Standard.Credential` interface (`viewtype CredentialView`). The SDK wraps every choice exposed by the deployed DAR:
+
+| SDK method | DAML choice | Source |
+|---|---|---|
+| `createCredential()` | template create (joint signatory: issuer + holder) | implementer (implements CIP #204 via `interface instance`) |
+| `verifyCredential()` | `Credential_PublicFetch` (nonconsuming interface choice) | **CIP #204** |
+| `archiveAsHolder()` | `Credential_ArchiveAsHolder` (consuming interface choice) | **CIP #204** |
+| `revokeCredential()` | `RevokeCredential` (template choice, cascade-burns bound NFT) | implementer (issuer compliance path) |
+| `createKycNft()` / `burnNft()` | `KycNFT` template create + `BurnNft` choice | implementer (soulbound showcase companion) |
+
 ## Consumer-side verification
 
-The flexible-controller `Verify` choice on `KYCCredential` lets a third-party firm verify a credential against its own participant — no issuer participant access required. The credential's `createdEventBlob` (base64url) is shipped to firms via OAuth userinfo as `canton_vc_credential_blob`; the firm attaches it as a `DisclosedContract` on the exercise command, Canton authenticates the blob server-side, and the choice returns the full `CredentialView` struct.
+A third-party firm can verify a credential against **its own** Canton participant by exercising `Credential_PublicFetch` with the issuer-supplied `createdEventBlob` attached as a `DisclosedContract`. Canton authenticates the blob against the sequencer signature server-side; the choice body enforces `expectedAdmin == admin` so a substituted credential is rejected at the chain boundary.
 
 `@canton-vc/credential`'s `verifyDisclosure(claims, { canton })` wraps this whole flow so firms write five lines of code, not Canton protocol bytes.
 

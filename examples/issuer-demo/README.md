@@ -44,8 +44,10 @@ ships nonsense data. It returns deterministic `KycDecision` values
 whose shape matches exactly what the real Didit / Sumsub / Persona
 adapters return — the same `proofHash` + `proofSchemaId` + `evidence`
 structure, just computed over a fixed seed instead of vendor data.
-The four production adapters are exercised against this same mock
-in our test suites (132 unit tests).
+The four production adapters share the same `KycProvider` interface,
+exercised across 147 adapter unit tests (mock 15 + Sumsub 44 +
+Didit 36 + Persona 52); the rest of the workspace adds 359 more for
+a 506-test suite at submission.
 
 The mock skips two things real adapters do: HMAC request signing and
 webhook signature verification. To exercise those code paths, switch

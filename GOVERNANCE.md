@@ -22,26 +22,43 @@ demonstrate sustained quality contributions over multiple releases.
 
 ## Decision categories
 
-### 1. Wire format / DAML template / OIDC claim names
+### 1. CIP #204 standard surface
 
-Anything that affects on-chain semantics or cross-issuer
-interoperability MUST go through the CIP process:
+The `Cip204.Standard.Credential` interface surface (view shape +
+the two standard choices `Credential_PublicFetch` and
+`Credential_ArchiveAsHolder`) is governed by [CIP #204](https://github.com/canton-foundation/cips/pull/204)
+at the Canton Foundation. This repository tracks the upstream
+standard verbatim. Proposed changes to the standard surface:
 
-1. Open a PR against `docs/cip-draft-canton-vc-standard.md` with the
-   proposed change.
-2. Post the PR to the Canton Foundation `grants-discuss` channel
-   for community comment (minimum 14 days).
-3. Address feedback. Merge the CIP change only after community
-   review concludes.
-4. Roll the matching SDK / DAML implementation change in a
-   subsequent PR, referencing the merged CIP section.
+1. Open the discussion upstream against `canton-foundation/cips`
+   (PR comments on #204, or a follow-on CIP).
+2. After the upstream change is accepted and tagged, roll the
+   matching DAR + SDK changes in this repository referencing the
+   upstream commit.
 
-Breaking changes to the canonical wire format require a major
-version bump on `canton-vc-credential` (DAML) and `@canton-vc/core` +
-`@canton-vc/credential` (TS). Legacy aliases stay supported for at
-least one minor version after the canonical replacement lands.
+### 2. Implementer extensions
 
-### 2. Adapter packages
+Implementer extensions in this repository — `RevokeCredential`,
+`UpdateCredentials`, the `KycNFT` companion + `BurnNft`, and any
+keys in the issuer's reverse-DNS claim namespace — are governed
+locally. Changes:
+
+1. Open a PR in this repository describing the new choice / claim
+   key and its semantics.
+2. For claim-key additions: include the matching proof-schema
+   spec under `docs/proof-schemas/` (content-addressed) in the
+   same PR.
+3. Community review at the repository level (minimum 7 days for
+   non-trivial changes).
+
+Breaking changes to either the standard surface or the implementer
+extensions require a major version bump on `canton-vc-credential`
+(DAML) and `@canton-vc/core` + `@canton-vc/credential` (TS).
+Legacy contracts under the prior DAR version remain queryable for
+audit lookup against their original package id; new mints land on
+the new DAR.
+
+### 3. Adapter packages
 
 Adapter packages (`@canton-vc/adapter-<vendor>`) implement the
 `KycProvider` interface for a specific KYC vendor. They are
@@ -55,7 +72,7 @@ maintainer-light by design:
   lead-maintainer review (because the interface affects all
   adapters).
 
-### 3. Routine code changes
+### 4. Routine code changes
 
 Bug fixes, documentation improvements, dependency bumps:
 

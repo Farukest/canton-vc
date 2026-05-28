@@ -2,7 +2,7 @@
 
 This document records the threat model `canton-vc` operates under, the boundary between what the SDK enforces versus what the issuer application must enforce, and the recommended patterns for the two operational risks that fall outside the SDK's enforcement reach.
 
-This is a normative companion to the CIP draft at [`docs/cip-draft-canton-vc-standard.md`](./cip-draft-canton-vc-standard.md) — the CIP names the wire format and the on-chain constraints; this document names the operational responsibilities for any conforming implementation.
+This is a normative companion to [CIP #204](https://github.com/canton-foundation/cips/pull/204) — the CIP names the wire format and the on-chain constraints (`Cip204.Standard.Credential` interface, `Credential_PublicFetch`, `Credential_ArchiveAsHolder`, joint signatory model); this document names the operational responsibilities for any conforming implementation.
 
 ---
 
@@ -120,17 +120,17 @@ A new adapter is "production-ready" when it has parity coverage against this che
 
 Adapters MUST compute the proof hash via the canonical `computeProofHash()` export from `@canton-vc/core` — never by hand-rolling SHA-256 over a locally-defined field set. The canonical module pins the field order, the canonical JSON serialization, and the hash algorithm; it is the single source of truth for the byte sequence the on-chain hash is computed against. An adapter that reuses this module remains compatible with on-chain audit replay even if the proof schema version advances; one that re-implements it locally will silently drift.
 
-### 2.5. Recommended pattern: explicit `validator` enum
+### 2.5. Recommended pattern: stable `validator` label
 
-The `validator` field on `Canton.VC.Credential` is a closed `ValidatorType` enum (Didit / Onfido / Persona / Sumsub / Veriff / Au10tix / Jumio / Zk / Generic). New adapters MUST emit one of these enum values, not a free-form string. Adapters wrapping a vendor without a dedicated enum entry mint under `Generic` until a future DAR upgrade extends the enum.
+The validator label is carried in the credential's CIP #204 `claims : TextMap Text` slot under the issuer's reverse-DNS namespace (the Crivacy reference deployment uses `io.crivacy/validator = 'DiditValidator'`). New adapters SHOULD pick a stable, documented label that downstream verifiers can switch on; the on-chain template does not enforce a closed enum, so adding a new vendor is a label change rather than a DAR upgrade. Issuers SHOULD publish their namespace + accepted labels alongside the OAuth scope catalogue so verifiers know which strings to expect.
 
 ---
 
 ## 3. PII boundary
 
-PII boundary enforcement is documented in detail in [`docs/proof-hash-schema.mdx`](./proof-hash-schema.mdx) (also linked from the CIP draft §3).
+No PII reaches the chain. Every value carried in the CIP #204 `claims : TextMap Text` field under the issuer's reverse-DNS namespace is either a non-PII identifier (`userRef`, a credential-scoped random pseudonym in conformant deployments; the `userRefLooksLikePseudonym()` helper in `@canton-vc/credential` provides an opt-in verifier-side check), an enum rendered as text, a boolean rendered as text, a network label, or a one-way SHA-256 digest (`proofHash`). PII enters the hash input only and is non-recoverable from the on-chain digest.
 
-In summary: no PII reaches the chain. Every on-chain field on the `Canton.VC.Credential` template is either a non-PII identifier (`userRef`, which the CIP draft §2 operator design constraint #8 recommends be a credential-scoped random pseudonym; the `userRefLooksLikePseudonym()` helper in `@canton-vc/credential` provides an opt-in verifier-side check), an enum, a boolean, an integer, a network label, or a one-way SHA-256 digest (`proofHash`). PII enters the hash input only and is non-recoverable from the on-chain digest.
+The full canonical-JSON specification driving `proofHash` lives under [`docs/proof-schemas/`](./proof-schemas/) — content-addressed by the `proofSchemaId` claim. An auditor with the firm's retained raw bytes plus the published schema can recompute the on-chain digest deterministically; the hash never depends on undocumented vendor-specific shape.
 
 ---
 

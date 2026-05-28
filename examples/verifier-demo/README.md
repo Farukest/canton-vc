@@ -46,31 +46,41 @@ SDK without depending on real vendor APIs from the browser.
 
 Auto-populated from panel 1, or paste any `contractId` + base64 blob.
 Clicking **Verify disclosure** calls the real
-`verifyDisclosure(claims, { canton, fetcher })` from
+`verifyDisclosure(claims, { canton, actor, expectedAdmin })` from
 `@canton-vc/credential`:
 
 ```ts
 import { verifyDisclosure } from '@canton-vc/credential';
+import { getClaim, isWithinValidityWindow } from '@canton-vc/core';
 
 const view = await verifyDisclosure(
   { canton_vc_credential_blob: blob, canton_vc_contract_id: contractId },
-  { canton, fetcher },
+  { canton, actor, expectedAdmin },
 );
-// view.isActive, view.userRef, view.level, view.validator, ...
+// CIP #204 view shape: issuer / holder / admin / claims (TextMap) /
+// createdAt / expiresAt / meta. Application fields read via
+// `getClaim(view.claims, '<reverseDns>/<key>')`; activity derived
+// via `isWithinValidityWindow(view)` against chain time.
 ```
 
-The returned `CredentialView` is rendered with the full 12-field
-struct and an active/inactive pill, matching what a firm's verifier
-would consume off its own participant.
+The returned `CredentialView` carries three party fields, the
+`claims` TextMap under the issuer's reverse-DNS namespace
+(`com.example/*` in the demo fixtures: 12 entries including
+`userRef`, `proofHash`, `proofSchemaId`, `level`, `status`,
+`validator`, evidence flags, …), `createdAt` / `expiresAt`, and
+`meta`. The card renders all 15 surfaced fields plus an
+active/inactive pill computed from `isWithinValidityWindow(view) &&
+status !== 'Revoked'`, matching what a firm's verifier would
+consume off its own participant.
 
 ### 3. KycNFT cascade revoke
 
 Mints an Enhanced-level credential and a soulbound `KycNFT`
 companion. Click **Revoke (cascade-archive both)** to call
-`canton.revokeCredential({ contractId, nftContractId })` — the Daml
-choice body archives the credential and the NFT atomically in the
-same transaction, demonstrating the cascade-burn behavior the
-`Canton.VC.Credential.Revoke` choice enforces on chain.
+`canton.revokeCredential({ contractId, nftContractId })` — the
+implementer-extension `RevokeCredential` choice body archives the
+credential and the NFT atomically in the same transaction,
+demonstrating the cascade-burn behavior enforced on chain.
 
 ## Mock vs real
 

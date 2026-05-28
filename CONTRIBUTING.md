@@ -22,8 +22,10 @@ In priority order:
 
 ## What we're NOT looking for (right now)
 
-- Breaking changes to the DAML template signatures — those are
-  gated by the CIP process (see `docs/cip-draft-canton-vc-standard.md`).
+- Breaking changes to the `Cip204.Standard.Credential` interface
+  surface — that surface is governed by [CIP #204](https://github.com/canton-foundation/cips/pull/204)
+  upstream; this repository implements it verbatim and tracks
+  upstream revisions rather than diverging.
 - Issuer-specific UI / branding contributions — `canton-vc` is the
   vendor-neutral SDK layer.
 
@@ -46,8 +48,10 @@ and Canton 3.4+. See `daml/canton-vc-credential/README.md`.
 - [ ] `pnpm test` green
 - [ ] `pnpm lint` clean (biome)
 - [ ] If DAML changed: DAR rebuilds on Canton 3.4 + 3.5 + 3.6
-- [ ] If wire format / claim names changed: update
-      `docs/cip-draft-canton-vc-standard.md` in the same PR
+- [ ] If implementer-extension claim names changed (issuer's
+      reverse-DNS namespace under the CIP #204 `claims` TextMap):
+      update the relevant proof-schema spec under
+      `docs/proof-schemas/` in the same PR
 - [ ] No PII / secrets / vendor API keys in committed code or tests
       (use `.env.example` placeholders)
 
