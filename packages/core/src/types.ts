@@ -348,13 +348,53 @@ export interface KycNftPayload {
   readonly image: string;
 }
 
+/* ---------- Claim-key schema factory ---------- */
+
+/**
+ * Build a typed, frozen object of fully-qualified claim keys from a
+ * single namespace + a list of short key names. Returns a
+ * `Readonly<Record<K, string>>` where each value is `<namespace>/<k>`.
+ *
+ * Eliminates the boilerplate of writing per-key constants by hand
+ * (and the silent-typo risk of repeating raw key strings at every
+ * call site). One namespace change = all keys updated automatically.
+ *
+ * Per CIP #204 §"Namespacing" the namespace MUST be Java-style
+ * reverse-DNS (`io.example`, `com.example.kyc`); the SDK does not
+ * enforce the shape at runtime — applications choose their own.
+ *
+ * @example
+ * ```ts
+ * const KEYS = createClaimSchema('io.acme', ['level', 'userRef'] as const);
+ * // KEYS.level === 'io.acme/level'
+ * // KEYS.userRef === 'io.acme/userRef'
+ * getClaim(view.claims, KEYS.level);
+ * ```
+ */
+export function createClaimSchema<K extends string>(
+  namespace: string,
+  keys: readonly K[],
+): Readonly<Record<K, string>> {
+  if (typeof namespace !== 'string' || namespace.length === 0) {
+    throw new Error('createClaimSchema: namespace must be a non-empty string.');
+  }
+  const out = {} as Record<K, string>;
+  for (const key of keys) {
+    if (typeof key !== 'string' || key.length === 0) {
+      throw new Error('createClaimSchema: every key must be a non-empty string.');
+    }
+    out[key] = `${namespace}/${key}`;
+  }
+  return Object.freeze(out);
+}
+
 /* ---------- Generic Claims accessors ---------- */
 
 /**
  * Read a claim from a `Claims` value. Returns `undefined` when the
  * key is missing. Consumers compose their own namespaced wrappers
- * (e.g. `getKycLevel(view) = getClaim(view.claims, 'com.example/level')`)
- * — the SDK does not opine on any specific namespace.
+ * (e.g. via {@link createClaimSchema}) — the SDK does not opine on
+ * any specific namespace.
  */
 export function getClaim(claims: Claims, key: string): string | undefined {
   return claims.values[key];

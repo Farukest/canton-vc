@@ -33,7 +33,13 @@ import type {
   UpdateId,
   VerifyCredentialResult,
 } from '../src';
-import { getBoolClaim, getClaim, getIntClaim, isWithinValidityWindow } from '../src';
+import {
+  createClaimSchema,
+  getBoolClaim,
+  getClaim,
+  getIntClaim,
+  isWithinValidityWindow,
+} from '../src';
 
 describe('Brand helper', () => {
   it('is a string at runtime', () => {
@@ -150,6 +156,43 @@ describe('VerifyCredentialResult shape', () => {
     // The result type intentionally has no `verified` field — lifecycle
     // interpretation is up to the caller.
     expectTypeOf<VerifyCredentialResult>().not.toMatchTypeOf<{ verified: boolean }>();
+  });
+});
+
+describe('createClaimSchema', () => {
+  it('builds a frozen object of namespaced keys', () => {
+    const k = createClaimSchema('io.example', ['level', 'userRef'] as const);
+    expect(k.level).toBe('io.example/level');
+    expect(k.userRef).toBe('io.example/userRef');
+    expect(Object.isFrozen(k)).toBe(true);
+  });
+
+  it('handles arbitrary reverse-DNS namespace shapes', () => {
+    const a = createClaimSchema('com.acme.kyc', ['humanScore'] as const);
+    expect(a.humanScore).toBe('com.acme.kyc/humanScore');
+    const b = createClaimSchema('io.org-with-dash', ['proofHash'] as const);
+    expect(b.proofHash).toBe('io.org-with-dash/proofHash');
+  });
+
+  it('handles an empty key list', () => {
+    const k = createClaimSchema('io.example', [] as const);
+    expect(k).toEqual({});
+    expect(Object.isFrozen(k)).toBe(true);
+  });
+
+  it('rejects an empty namespace', () => {
+    expect(() => createClaimSchema('', ['level'] as const)).toThrowError(/non-empty/);
+  });
+
+  it('rejects an empty key', () => {
+    expect(() => createClaimSchema('io.example', ['level', ''] as const)).toThrowError(/non-empty/);
+  });
+
+  it('preserves typed key access at compile time', () => {
+    const k = createClaimSchema('io.example', ['level', 'userRef'] as const);
+    // Compile-time check — `k.level` and `k.userRef` are statically known;
+    // a typo like `k.levle` would be a type error.
+    expectTypeOf(k).toEqualTypeOf<Readonly<{ level: string; userRef: string }>>();
   });
 });
 

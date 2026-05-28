@@ -160,6 +160,7 @@ export type {
   VerifyCredentialResult,
 } from './types';
 export {
+  createClaimSchema,
   getBoolClaim,
   getClaim,
   getIntClaim,
