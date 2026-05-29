@@ -45,9 +45,9 @@
 
 import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
-import { createInterface } from 'node:readline';
 import { resolve } from 'node:path';
-
+import { createInterface } from 'node:readline';
+import { DiditAdapter } from '../packages/adapter-didit/src/index';
 import {
   CantonClient,
   type CantonConfig,
@@ -60,7 +60,6 @@ import {
   type PartyId,
 } from '../packages/core/src/index';
 import { verifyDisclosure } from '../packages/credential/src/canton';
-import { DiditAdapter } from '../packages/adapter-didit/src/index';
 
 import { DAR_VERSION, SDK_VERSION } from './_versions';
 

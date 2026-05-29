@@ -82,11 +82,11 @@ async function mockApprove(applicantId: string): Promise<void> {
     reviewRejectType: undefined,
   });
   const ts = Math.floor(Date.now() / 1000).toString();
-  const sig = createHmac('sha256', secretKey!).update(`${ts}POST${path}${body}`).digest('hex');
+  const sig = createHmac('sha256', secretKey as string).update(`${ts}POST${path}${body}`).digest('hex');
   const res = await fetch(`https://api.sumsub.com${path}`, {
     method: 'POST',
     headers: {
-      'X-App-Token': appToken!,
+      'X-App-Token': appToken as string,
       'X-App-Access-Sig': sig,
       'X-App-Access-Ts': ts,
       Accept: 'application/json',
@@ -171,7 +171,7 @@ async function main(): Promise<void> {
     createdAtMs: Date.now().toString(),
   };
   const raw = JSON.stringify(webhookBody);
-  const sig = createHmac('sha256', webhookSecret!).update(raw).digest('hex');
+  const sig = createHmac('sha256', webhookSecret as string).update(raw).digest('hex');
   const event = await adapter.verifyWebhook(raw, {
     'X-Payload-Digest': sig,
     'X-Payload-Digest-Alg': 'HMAC_SHA256_HEX',

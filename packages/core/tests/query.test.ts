@@ -12,9 +12,8 @@
  */
 
 import { describe, expect, it } from 'vitest';
-
-import { fetchDisclosureBundleByHolder, findActiveCredentialByHolder, listActiveCredentials } from '../src';
 import type { PartyId } from '../src';
+import { fetchDisclosureBundleByHolder, findActiveCredentialByHolder, listActiveCredentials } from '../src';
 import {
   buildAcsEntry,
   buildFakeFetch,

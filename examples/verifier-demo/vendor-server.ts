@@ -31,13 +31,12 @@
 
 /* eslint-disable no-console */
 
-import { config as loadDotenv } from 'dotenv';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-
 import { DiditAdapter } from '@canton-vc/adapter-didit';
 import { PersonaAdapter } from '@canton-vc/adapter-persona';
 import { SumsubAdapter } from '@canton-vc/adapter-sumsub';
 import type { KycProvider } from '@canton-vc/kyc-provider';
+import { config as loadDotenv } from 'dotenv';
 
 loadDotenv({ quiet: true });
 

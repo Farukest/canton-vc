@@ -1,10 +1,8 @@
-import { useState } from 'react';
-
 import type { ContractId, CredentialView, PartyId } from '@canton-vc/core';
 import { verifyDisclosure } from '@canton-vc/credential';
-
-import { asCantonClient, getMockCanton } from '../lib/mock-canton.js';
+import { useState } from 'react';
 import { CredentialViewCard } from '../components/CredentialViewCard.js';
+import { asCantonClient, getMockCanton } from '../lib/mock-canton.js';
 
 import type { MintInfo } from './IssuePanel.js';
 

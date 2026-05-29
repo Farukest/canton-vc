@@ -14,8 +14,6 @@
  */
 
 import { describe, expect, it } from 'vitest';
-
-import { createCredential, resolveNamespace, revokeCredential, verifyCredential } from '../src';
 import type {
   ContractId,
   CreateCredentialInput,
@@ -23,7 +21,7 @@ import type {
   RevokeCredentialInput,
   VerifyCredentialInput,
 } from '../src';
-import { resetAllNamespaceCachesForTests } from '../src';
+import { createCredential, resetAllNamespaceCachesForTests, resolveNamespace, revokeCredential, verifyCredential } from '../src';
 import {
   buildClaims,
   buildCreateSubmitResponse,

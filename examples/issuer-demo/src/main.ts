@@ -28,9 +28,9 @@
  * @module
  */
 
-import { config as loadDotenv } from 'dotenv';
 
 import type { Claims, CreateCredentialInput } from '@canton-vc/core';
+import { config as loadDotenv } from 'dotenv';
 
 import { buildAdapter, resolveVendor, type VendorId } from './adapter-factory.js';
 import { MockCantonClient } from './mock-canton.js';

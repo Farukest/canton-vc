@@ -78,7 +78,7 @@ jobs:
         working-directory: daml/canton-vc-credential
         run: |
           ls -la release/
-          test -f release/canton-vc-credential-1.1.0.dar
+          test -f release/canton-vc-credential-2.2.0.dar
 
       - name: Note any drift between committed DAR and fresh build
         working-directory: daml/canton-vc-credential
@@ -105,7 +105,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: canton-vc-credential-${{ github.sha }}.dar
-          path: daml/canton-vc-credential/release/canton-vc-credential-1.1.0.dar
+          path: daml/canton-vc-credential/release/canton-vc-credential-2.2.0.dar
           retention-days: 30
 
   audit:

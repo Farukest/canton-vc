@@ -7,9 +7,8 @@
  */
 
 import { describe, expect, it } from 'vitest';
-
-import { CantonClient } from '../src';
 import type { ContractId, PartyId } from '../src';
+import { CantonClient } from '../src';
 import {
   buildAcsEntry,
   buildClaims,

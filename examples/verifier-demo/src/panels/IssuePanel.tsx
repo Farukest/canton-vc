@@ -1,7 +1,6 @@
-import { useState } from 'react';
-
 import type { Claims, CreateCredentialInput } from '@canton-vc/core';
 import type { KycDecision, KycProvider, KycSession } from '@canton-vc/kyc-provider';
+import { useState } from 'react';
 
 import { getMockCanton } from '../lib/mock-canton.js';
 import { BrowserMockProvider, type SimulatedVendor } from '../lib/mock-provider.js';

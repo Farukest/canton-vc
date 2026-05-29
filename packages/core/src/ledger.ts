@@ -29,9 +29,9 @@ import {
   buildBurnNftCommand,
   buildCreateCredentialCommand,
   buildCreateKycNftCommand,
+  buildCredentialFactoryUpdateExerciseCommand,
   buildRevokeCredentialCommand,
   buildUpdateCredentialsCommand,
-  buildCredentialFactoryUpdateExerciseCommand,
   buildVerifyCredentialCommand,
   newCommandId,
 } from './commands';

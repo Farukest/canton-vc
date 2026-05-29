@@ -41,7 +41,7 @@
 import { createHmac, randomBytes } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-
+import { SumsubAdapter } from '../packages/adapter-sumsub/src/index';
 import {
   CantonClient,
   type CantonConfig,
@@ -54,7 +54,6 @@ import {
   type PartyId,
 } from '../packages/core/src/index';
 import { verifyDisclosure } from '../packages/credential/src/canton';
-import { SumsubAdapter } from '../packages/adapter-sumsub/src/index';
 
 import { DAR_VERSION, SDK_VERSION } from './_versions';
 

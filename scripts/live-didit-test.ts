@@ -58,12 +58,6 @@ const FIXTURES: readonly FixtureCase[] = [
   },
 ];
 
-function summary(value: unknown, maxLines = 8): string {
-  const lines = JSON.stringify(value, null, 2).split('\n');
-  if (lines.length <= maxLines + 1) return JSON.stringify(value, null, 2);
-  return lines.slice(0, maxLines).join('\n') + `\n  … (${lines.length - maxLines} more lines)`;
-}
-
 async function runCase(adapter: DiditAdapter, fixture: FixtureCase): Promise<boolean> {
   console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
   console.log(`  ${fixture.label}`);
@@ -108,7 +102,7 @@ async function runCase(adapter: DiditAdapter, fixture: FixtureCase): Promise<boo
         status: decision.status,
         level: decision.level,
         evidence: decision.evidence,
-        proofHashHex: decision.proofHash.slice(0, 16) + '…' + decision.proofHash.slice(-8),
+        proofHashHex: `${decision.proofHash.slice(0, 16)}…${decision.proofHash.slice(-8)}`,
         expiresAt: decision.expiresAt,
       },
       null,

@@ -1,5 +1,3 @@
-import { useState } from 'react';
-
 import type {
   Claims,
   ContractId,
@@ -8,10 +6,10 @@ import type {
   PartyId,
 } from '@canton-vc/core';
 import { verifyDisclosure } from '@canton-vc/credential';
-
+import { useState } from 'react';
+import { CredentialViewCard } from '../components/CredentialViewCard.js';
 import { asCantonClient, getMockCanton } from '../lib/mock-canton.js';
 import { BrowserMockProvider } from '../lib/mock-provider.js';
-import { CredentialViewCard } from '../components/CredentialViewCard.js';
 
 interface PanelState {
   readonly credentialId: ContractId;

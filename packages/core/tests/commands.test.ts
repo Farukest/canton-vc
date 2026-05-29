@@ -14,7 +14,15 @@
  */
 
 import { describe, expect, it } from 'vitest';
-
+import type {
+  CommandId,
+  ContractId,
+  CreateCredentialInput,
+  CreateKycNftInput,
+  PartyId,
+  RevokeCredentialInput,
+  VerifyCredentialInput,
+} from '../src';
 import {
   buildCreateCredentialCommand,
   buildCreateKycNftCommand,
@@ -24,15 +32,6 @@ import {
   deterministicCommandId,
   MAX_COMMAND_ID_LENGTH,
   newCommandId,
-} from '../src';
-import type {
-  CommandId,
-  ContractId,
-  CreateCredentialInput,
-  CreateKycNftInput,
-  PartyId,
-  RevokeCredentialInput,
-  VerifyCredentialInput,
 } from '../src';
 import {
   buildClaims,

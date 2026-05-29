@@ -47,7 +47,7 @@
 import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-
+import { PersonaAdapter } from '../packages/adapter-persona/src/index';
 import {
   CantonClient,
   type CantonConfig,
@@ -60,7 +60,6 @@ import {
   type PartyId,
 } from '../packages/core/src/index';
 import { verifyDisclosure } from '../packages/credential/src/canton';
-import { PersonaAdapter } from '../packages/adapter-persona/src/index';
 
 import { DAR_VERSION, SDK_VERSION } from './_versions';
 
