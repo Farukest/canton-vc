@@ -1,0 +1,85 @@
+module Cip204.Factory where
+
+import qualified Cip204.Standard as Standard
+
+-- ────────────────────────────────────────────────────────────────────
+-- Cip204.Factory — CIP #204 optional second interface (bulk update
+-- factory). New in canton-vc-credential v2.2.0.
+--
+-- Kept in a separate module from `Cip204.Standard` so the v2.1.0
+-- mainnet package's `Standard` module remains byte-identical under
+-- Smart Contract Upgrade rules — the v2.1.0 `Credential` interface
+-- implementation on `Canton.VC.Credential` continues to satisfy
+-- upgrade-check vetting because the upstream `Cip204.Standard`
+-- module is unchanged across DAR versions.
+--
+-- Spec text (CIP #204, §"Credential Factory Interface"):
+-- "the `CredentialFactory` Daml interface provides a choice
+-- `CredentialFactory_UpdateCredentials` that allows for a bulk
+-- update of credentials with the same issuer and holder."
+--
+-- The factory is scoped to a single `(admin, issuer, holder)`
+-- triple. Its `UpdateCredentials` choice exercises a bulk update on
+-- one or more credentials in scope, under joint authorization. A
+-- factory instance is cheap to create on demand by the issuer +
+-- holder, lives as long as the update workflow needs it, and is
+-- archived afterwards via the built-in Archive choice (which is
+-- joint-auth by signatory rule).
+--
+-- This is the local copy of the spec shape until the upstream
+-- `cip-204-credentials` package ships the interface verbatim under
+-- a stable mainnet package id; at that point `interface instance`
+-- lines re-target the upstream definition without an API change.
+-- ────────────────────────────────────────────────────────────────────
+
+-- | View exposed by every `CredentialFactory` implementer.
+data CredentialFactoryView = CredentialFactoryView with
+    admin : Party
+    issuer : Party
+    holder : Party
+  deriving (Eq, Show)
+
+-- | One credential update inside a `CredentialFactory_UpdateCredentials`
+-- exercise. Each entry rewrites a specific credential's claims (and
+-- optionally its expiry) in a single atomic transaction.
+data CredentialUpdate = CredentialUpdate with
+    credentialId : ContractId Standard.Credential
+    newClaims : Standard.Claims
+    newExpiresAt : Optional Time
+  deriving (Eq, Show)
+
+-- | Result of `CredentialFactory_UpdateCredentials`. Returns the new
+-- contract ids of the rewritten credentials so the caller does not
+-- need to query the ledger to discover them.
+data CredentialFactory_UpdateCredentialsResult = CredentialFactory_UpdateCredentialsResult with
+    updatedCredentials : [ContractId Standard.Credential]
+    meta : Standard.Metadata
+  deriving (Eq, Show)
+
+-- | The optional CIP-#204 factory interface. Implementers that want
+-- bulk update support provide an `interface instance` for this on
+-- their factory template.
+interface CredentialFactory where
+  viewtype CredentialFactoryView
+
+  -- | Implementer hook for the bulk update path. Called from
+  -- `CredentialFactory_UpdateCredentials` after authorization. The
+  -- implementer MUST validate that every supplied credential id is
+  -- in scope of this factory (matching admin / issuer / holder).
+  updateCredentialsImpl :
+       ContractId CredentialFactory
+    -> [CredentialUpdate]
+    -> Standard.Metadata
+    -> Update CredentialFactory_UpdateCredentialsResult
+
+  -- | Joint-auth bulk update across one or more credentials in this
+  -- factory's `(issuer, holder)` scope. Each `CredentialUpdate`
+  -- entry replaces the claims map (and optionally the expiry) of
+  -- one credential; the implementer archives the old contracts and
+  -- creates sibling replacements in the same Canton transaction.
+  choice CredentialFactory_UpdateCredentials : CredentialFactory_UpdateCredentialsResult
+    with
+      updates : [CredentialUpdate]
+      meta : Standard.Metadata
+    controller (view this).issuer, (view this).holder
+    do updateCredentialsImpl this self updates meta

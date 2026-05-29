@@ -31,6 +31,7 @@ import {
   buildCreateKycNftCommand,
   buildRevokeCredentialCommand,
   buildUpdateCredentialsCommand,
+  buildCredentialFactoryUpdateExerciseCommand,
   buildVerifyCredentialCommand,
   newCommandId,
 } from './commands';
@@ -486,45 +487,85 @@ export async function revokeCredential(
 }
 
 /**
- * Exercise the implementer-side `UpdateCredentials` choice — bulk
- * replacement of the claims map (and optionally the template-level
- * `expiresAt`) in a single Canton transaction. Archives the
- * current contract and creates a sibling carrying the new payload.
+ * CIP #204 optional factory pathway for bulk credential refresh.
  *
- * NOT part of CIP #204. Provided so issuers can refresh vendor-
- * driven evidence without the full revoke + remint round-trip.
- * The returned `contractId` is the new sibling's id.
+ * Two-step orchestration: (1) create an ephemeral
+ * `CredentialFactory` contract under joint signatory issuer +
+ * holder, (2) exercise `CredentialFactory_UpdateCredentials` on the
+ * factory's interface with a single-entry update list. The choice
+ * body archives the current credential and creates a sibling
+ * carrying the replacement claims map plus optional new
+ * `expiresAt`. The returned `contractId` is the new sibling's id.
+ *
+ * The two-step split exists because the JSON Ledger API's
+ * `CreateAndExerciseCommand` only addresses template-level choices,
+ * not interface choices on the template's implementations — so we
+ * issue a `CreateCommand` for the factory, capture its contract id
+ * from the transaction events, then issue an `ExerciseCommand`
+ * against the factory's interface in a follow-up call.
  */
 export async function updateCredentials(
   config: CantonConfig,
   input: UpdateCredentialsInput,
   fetchImpl?: FetchLike,
 ): Promise<UpdateCredentialsResult> {
-  const commandId = newCommandId(config, 'update');
-  const body = buildUpdateCredentialsCommand(config, input, commandId);
-
-  const response = await cantonFetch(
+  // Step 1 — create the factory.
+  const factoryCreateCommandId = newCommandId(config, 'updfac');
+  const factoryCreateBody = buildUpdateCredentialsCommand(
+    config,
+    input,
+    factoryCreateCommandId,
+  );
+  const factoryCreateResponse = await cantonFetch(
     config,
     {
       method: 'POST',
       path: '/v2/commands/submit-and-wait-for-transaction',
-      body,
+      body: factoryCreateBody,
       schema: SubmitAndWaitResponseSchema,
       retry: 'never',
-      context: { op: 'updateCredentials', commandId, contractId: input.contractId },
+      context: {
+        op: 'updateCredentials.createFactory',
+        commandId: factoryCreateCommandId,
+        contractId: input.contractId,
+      },
     },
     fetchImpl,
   );
+  const factoryContractId = extractCreatedContractId(
+    factoryCreateResponse,
+    factoryCreateCommandId,
+  );
 
-  // The choice returns the new sibling's contract id (typed
-  // `ContractId Credential` on the DAML side). Same extraction
-  // pattern as `revokeCredential`.
-  const newContractId = extractCreatedContractId(response, commandId);
+  // Step 2 — exercise the interface choice on the factory.
+  const exerciseCommandId = newCommandId(config, 'update');
+  const exerciseBody = buildCredentialFactoryUpdateExerciseCommand(
+    config,
+    { ...input, factoryContractId },
+    exerciseCommandId,
+  );
+  const exerciseResponse = await cantonFetch(
+    config,
+    {
+      method: 'POST',
+      path: '/v2/commands/submit-and-wait-for-transaction',
+      body: exerciseBody,
+      schema: SubmitAndWaitResponseSchema,
+      retry: 'never',
+      context: {
+        op: 'updateCredentials.exerciseFactory',
+        commandId: exerciseCommandId,
+        contractId: input.contractId,
+      },
+    },
+    fetchImpl,
+  );
+  const newContractId = extractCreatedContractId(exerciseResponse, exerciseCommandId);
   return Object.freeze({
     contractId: newContractId,
-    commandId,
-    updateId: response.transaction.updateId as UpdateId,
-    recordTime: response.transaction.recordTime,
+    commandId: exerciseCommandId,
+    updateId: exerciseResponse.transaction.updateId as UpdateId,
+    recordTime: exerciseResponse.transaction.recordTime,
   });
 }
 

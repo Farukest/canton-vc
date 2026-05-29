@@ -270,25 +270,40 @@ export interface RevokeCredentialResult {
 
 /**
  * Arguments accepted by `updateCredentials()`. Exercises the
- * implementer-side `UpdateCredentials` choice on the credential
- * template — bulk replacement of the claims map and (optionally)
- * the template-level `expiresAt`, in a single Canton transaction.
+ * CIP #204 optional `CredentialFactory_UpdateCredentials` choice
+ * on a `CredentialFactory` contract — joint-auth (issuer + holder)
+ * bulk replacement of the claims map and (optionally) the
+ * template-level `expiresAt`, in a single Canton transaction.
  *
- * Not part of CIP #204. Provided so issuers can refresh vendor-
- * driven evidence (re-verification, level upgrade, validity-window
- * extension) without going through the full `revoke + remint`
- * pattern.
+ * Implementation detail: the SDK creates a fresh
+ * `CredentialFactory` (joint signatory issuer + holder) and
+ * exercises the bulk-update choice on it in the same atomic command
+ * list, so callers don't manage factory lifecycle. The choice body
+ * archives the existing credential and creates a sibling with the
+ * replacement payload.
  *
- * Controller is the issuer; the holder can reject an unwanted
- * update after the fact via `archiveAsHolder()`.
+ * Both `issuerParty` and `holderParty` must be hosted on the
+ * submitting participant — the factory's signatories are
+ * `issuer + holder`, matching the CIP #204 joint-auth pattern.
  */
 export interface UpdateCredentialsInput {
   readonly contractId: ContractId;
   readonly issuerParty: PartyId;
   /**
+   * Holder party for the joint-auth factory create. Required by
+   * the CIP #204 factory pattern; the SDK signs the create + update
+   * as both parties in a single atomic transaction.
+   */
+  readonly holderParty: PartyId;
+  /**
+   * Admin party recorded on the factory view. Defaults to the
+   * issuer (custodian model where issuer == admin); pass a distinct
+   * value for delegated-issuance deployments.
+   */
+  readonly adminParty?: PartyId;
+  /**
    * Replacement claims map. Must contain at least one entry; the
-   * template's ensure clause rejects an empty map at the chain
-   * boundary.
+   * factory choice body rejects an empty map at the chain boundary.
    */
   readonly newClaims: Claims;
   /**
@@ -299,9 +314,10 @@ export interface UpdateCredentialsInput {
    */
   readonly newExpiresAt?: string;
   /**
-   * Free-form reason text recorded under the new sibling's
-   * `canton-vc/update.reason` meta key. The DAML choice rejects
-   * an empty string.
+   * Free-form reason text recorded under the factory result meta
+   * map at `canton-vc/update.reason`. Empty strings are accepted —
+   * the spec doesn't constrain reason, only the implementer-side
+   * legacy choice did.
    */
   readonly reason: string;
 }

@@ -146,7 +146,12 @@ and this repo exercises each through its natural surface:
 | Verifier (the firm consuming credentials) | this SPA | Verification happens in firm-facing UX (OAuth-return flow, credential gate); a browser SPA shows the actual call site |
 | Full on-chain leg (real Canton mint) | `scripts/live-*-canton-*-e2e.ts` | Requires a participant + DAR; standalone scripts let advanced reviewers go end-to-end without complicating the demos |
 
-The shipped reference deployment ([Crivacy.io](https://crivacy.io))
-already covers the real production round-trip from KYC vendor through
-Canton mainnet — see the proposal's **Production reference** entry
-under §M1 for the on-chain party id + ccview.io links.
+A real production round-trip from KYC vendor through Canton mainnet
+is documented in the grant proposal under §M1's **Production
+reference** entry (on-chain party id + ccview.io links to the live
+operator party and validator). For an end-to-end mainnet replay
+without a custodial backend, the `scripts/live-{didit,sumsub,persona}-canton-e2e-v2.ts`
+trio walks every DAML choice (`createCredential`, `Credential_PublicFetch`,
+`Credential_ArchiveAsHolder`, `RevokeCredential` with NFT cascade,
+`UpdateCredentials` via the factory pathway, `createKycNft`,
+standalone `BurnNft`) against a configured participant + DAR id.

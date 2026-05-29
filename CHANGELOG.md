@@ -7,6 +7,28 @@ Versioning follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ---
 
+## [0.3.0] — 2026-05-29
+
+### Added — CIP #204 optional factory interface
+
+- **DAR v2.2.0** mainnet-deployed alongside v2.1.0 (package id `16fb51c2e9703cef173c76babd755afca9c7a01e34fc947aebc12205fdf0f719`, vetted with `UPDATE_VETTED_PACKAGES_FORCE_FLAG_ALLOW_VET_INCOMPATIBLE_UPGRADES`). Adds the `Cip204.Factory.CredentialFactory` interface and a `Canton.VC.Credential:CredentialFactory` template implementing it. Bulk update is exercised via `CredentialFactory_UpdateCredentials` on a joint-signatory (issuer + holder) factory contract per the spec's optional factory pattern. The legacy template-level `UpdateCredentials` choice on `Credential` is retained on v2.2.0 for Smart Contract Upgrade backward-compat with v2.1.0 mainnet contracts; it is marked deprecated for new v2.2.0+ callers.
+- **SDK v0.3.0** across 7 packages. `buildUpdateCredentialsCommand` reroutes to the factory pathway with a two-step orchestration: a `CreateCommand` mints an ephemeral `CredentialFactory` under joint signatory (issuer + holder), then a follow-up `ExerciseCommand` against the factory's interface id (`Cip204.Factory:CredentialFactory`) runs `CredentialFactory_UpdateCredentials` and archives the factory in the same transaction. The split is mandated by the JSON Ledger API spec — `CreateAndExerciseCommand` only addresses template-level choices, so an interface choice on a template's implementation must be exercised as a separate command. `UpdateCredentialsInput` gained `holderParty` (required) and `adminParty` (optional, defaults to issuer). The public client surface (`canton.updateCredentials({...})`) is signature-compatible aside from those two new fields; existing callers add `holderParty` and the rest is internal.
+
+### Changed
+
+- `updateCredentials()` is now CIP #204 spec-aligned — joint signatory `issuer + holder` is required, matching the factory choice's controller set. Implementer pipelines that handle level transitions via revoke + remint do not call `updateCredentials()` and need no app-layer migration; the operational footprint of the change is the smoke-trail scripts and any future implementer adopting the bulk-refresh pathway.
+
+### Mainnet vetting trail
+
+| Package id | Status |
+|---|---|
+| `562bbc757d5e…` (v2.1.0) | Active — existing credentials remain queryable + exerciseable, legacy `UpdateCredentials` choice still callable |
+| `16fb51c2e970…` (v2.2.0) | Active — new factory pathway, all v2.1.0 surface still present |
+
+The v2.1.0 package will be unvetted in a future release once all existing credentials minted on it have been superseded or expired (Canton upgrade-doc §4.1.2: "all v1 contracts must be fully upgraded before unvetting v1").
+
+---
+
 ## [0.2.0] — 2026-05-28
 
 ### BREAKING — Pure CIP #204 alignment
@@ -32,16 +54,16 @@ The on-chain DAML template was rewritten end-to-end to adopt the [Canton Verifia
 
 - **`Verify` choice** — replaced by the CIP #204 standard `Credential_PublicFetch` interface choice.
 - **`MigrateValidator` choice** — replaced by `UpdateCredentials` (same semantic: archive current + create sibling with new claims, but parametrised over the full claims map rather than a single field).
-- **`Canton.VC.Credential.ValidatorType` enum** — validator label is now a free-form text claim under the issuer's reverse-DNS namespace (e.g. `io.crivacy/validator = 'DiditValidator'`). Adding a new vendor is a label change, not a DAR upgrade.
+- **`Canton.VC.Credential.ValidatorType` enum** — validator label is now a free-form text claim under the issuer's reverse-DNS namespace (e.g. `com.example/validator = 'DiditValidator'`). Adding a new vendor is a label change, not a DAR upgrade.
 - Application-layer enums (`KycLevel`, `CredentialStatus`, `Validator`, `CanonicalNetwork`) and `DAML_TO_DB_*` / `DB_TO_DAML_*` mapping tables — these belong in consumer code, not the SDK. The library stays agnostic of any specific issuer vocabulary.
 
 #### Verified
 
 - End-to-end live mainnet smoke for both Sumsub and Persona sandbox APIs — 16 phases each, every DAML choice exercised (`createCredential` × 4 credentials, `Credential_PublicFetch`, `Credential_ArchiveAsHolder`, `RevokeCredential` with NFT cascade, `UpdateCredentials`, `createKycNft`, standalone `BurnNft`, wrong-admin reject path). Sample contract ids recorded in the per-package CHANGELOG entries (`packages/adapter-sumsub/CHANGELOG.md`, `packages/adapter-persona/CHANGELOG.md`).
 
-#### Crivacy reference deployment
+#### Production reference deployment
 
-- The Crivacy.io production deployment swapped to v2.1.0 in the same window; the firm-facing API surface (REST endpoints, OAuth claim names, webhook event types) stayed contract-stable, with `credential.updated` + `credential.expired` events added to the `WebhookEventType` enum.
+- The production reference deployment documented under the grant proposal's §M1 swapped to v2.1.0 in the same window; the firm-facing API surface (REST endpoints, OAuth claim names, webhook event types) stayed contract-stable, with `credential.updated` + `credential.expired` events added to the `WebhookEventType` enum.
 
 ---
 

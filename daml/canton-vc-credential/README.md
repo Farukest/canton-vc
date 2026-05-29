@@ -16,16 +16,16 @@ verbatim, plus three implementer extensions (`RevokeCredential`,
 
 ## Pre-built DAR
 
-A pre-built DAR is committed at `release/canton-vc-credential-2.1.0.dar`
+A pre-built DAR is committed at `release/canton-vc-credential-2.2.0.dar`
 so the package can be uploaded to a participant without a local DAML
 toolchain. Upload it with:
 
 ```bash
-daml ledger upload-dar release/canton-vc-credential-2.1.0.dar
+daml ledger upload-dar release/canton-vc-credential-2.2.0.dar
 ```
 
 Then allocate an `Operator` (issuer) party before minting credentials.
-Mainnet package id of v2.1.0: `562bbc757d5ec55fba320bf7370588b356811b3f2556817f49098de467758ea4`.
+Mainnet package id of v2.2.0: `16fb51c2e9703cef173c76babd755afca9c7a01e34fc947aebc12205fdf0f719`.
 
 ## Building from source
 
@@ -34,7 +34,7 @@ Mainnet package id of v2.1.0: `562bbc757d5ec55fba320bf7370588b356811b3f2556817f4
 ./build-wsl.sh    # Windows + WSL — builds in /tmp for filesystem performance
 ```
 
-Both scripts produce `release/canton-vc-credential-2.1.0.dar`,
+Both scripts produce `release/canton-vc-credential-2.2.0.dar`,
 overwriting the committed copy. The intermediate `.daml/dist/` build
 artifact is gitignored.
 

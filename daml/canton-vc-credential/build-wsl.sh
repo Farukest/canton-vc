@@ -18,6 +18,12 @@ rm -rf "$BUILD"
 mkdir -p "$BUILD"
 cp "$SRC/daml.yaml" "$BUILD/"
 cp -r "$SRC/daml" "$BUILD/"
+# data-dependencies in daml.yaml reference release/*.dar (v2.1.0 carries
+# the unchanged Cip204.Standard interface that v2.2.0 reuses verbatim
+# so the upgrade-check vetting passes on mainnet).
+if [ -d "$SRC/release" ]; then
+  cp -r "$SRC/release" "$BUILD/"
+fi
 
 cd "$BUILD"
 daml build

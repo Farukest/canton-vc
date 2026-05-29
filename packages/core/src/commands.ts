@@ -105,6 +105,9 @@ export const TRANSACTION_SHAPE_LEDGER_EFFECTS = 'TRANSACTION_SHAPE_LEDGER_EFFECT
  * choice such as `Credential_PublicFetch`.
  */
 const CIP204_INTERFACE_MODULE_AND_NAME = 'Cip204.Standard:Credential' as const;
+const CIP204_FACTORY_INTERFACE_MODULE_AND_NAME = 'Cip204.Factory:CredentialFactory' as const;
+const CREDENTIAL_FACTORY_TEMPLATE_MODULE_AND_NAME =
+  'Canton.VC.Credential:CredentialFactory' as const;
 
 /**
  * Derive the CIP #204 interface identifier from a template-shaped
@@ -125,6 +128,44 @@ function deriveCip204InterfaceId(packageName: string): string {
   return `${packageName.slice(0, firstColon + 1)}${CIP204_INTERFACE_MODULE_AND_NAME}`;
 }
 
+/**
+ * Derive the implementer-side `CredentialFactory` template id from the
+ * package name. The factory template ships in
+ * `Canton.VC.Credential:CredentialFactory` in v2.2.0+; `config.packageName`
+ * already carries the right package prefix (e.g.
+ * `#canton-vc-credential:Canton.VC.Credential:Credential`), so we swap the
+ * template segment to point at the factory.
+ */
+function deriveCredentialFactoryTemplateId(packageName: string): string {
+  const firstColon = packageName.indexOf(':');
+  if (firstColon < 0) {
+    throw new CantonError(
+      'invalid_command',
+      `packageName "${packageName}" must include at least one ':' to derive the CredentialFactory template id.`,
+    );
+  }
+  return `${packageName.slice(0, firstColon + 1)}${CREDENTIAL_FACTORY_TEMPLATE_MODULE_AND_NAME}`;
+}
+
+/**
+ * Derive the CIP #204 `Cip204.Factory.CredentialFactory` interface id.
+ * Used in the second leg of the update-via-factory flow — the JSON
+ * Ledger API spec says `ExerciseCommand.templateId` carries the
+ * interface id when the choice being exercised lives on an interface
+ * rather than directly on the template.
+ */
+function deriveCip204FactoryInterfaceId(packageName: string): string {
+  const firstColon = packageName.indexOf(':');
+  if (firstColon < 0) {
+    throw new CantonError(
+      'invalid_command',
+      `packageName "${packageName}" must include at least one ':' to derive the CIP #204 factory interface id.`,
+    );
+  }
+  return `${packageName.slice(0, firstColon + 1)}${CIP204_FACTORY_INTERFACE_MODULE_AND_NAME}`;
+}
+
+
 /* ---------- Command id ---------- */
 
 /**
@@ -137,7 +178,7 @@ function deriveCip204InterfaceId(packageName: string): string {
  */
 export function newCommandId(
   config: CantonConfig,
-  purpose: 'create' | 'verify' | 'revoke' | 'create-nft' | 'archive-holder' | 'burn-nft' | 'update',
+  purpose: 'create' | 'verify' | 'revoke' | 'create-nft' | 'archive-holder' | 'burn-nft' | 'update' | 'updfac',
   clock: () => number = Date.now,
   rand: (n: number) => string = randomHex,
 ): CommandId {
@@ -171,7 +212,7 @@ export function newCommandId(
  */
 export function deterministicCommandId(
   config: CantonConfig,
-  purpose: 'create' | 'verify' | 'revoke' | 'create-nft' | 'archive-holder' | 'burn-nft' | 'update',
+  purpose: 'create' | 'verify' | 'revoke' | 'create-nft' | 'archive-holder' | 'burn-nft' | 'update' | 'updfac',
   seed: string,
 ): CommandId {
   if (typeof seed !== 'string' || seed.length === 0) {
@@ -577,49 +618,125 @@ export function buildRevokeCredentialCommand(
 /**
  * Build the submission body for an `updateCredentials` call.
  *
- * Exercises the `UpdateCredentials` template choice (implementer
- * extension, NOT part of CIP #204). Controller is the issuer; the
- * choice archives the current contract and creates a sibling with
- * the replacement claims map plus optional new `expiresAt`.
+ * Goes through the CIP #204 optional `CredentialFactory` interface:
+ * creates an ephemeral `CredentialFactory` (joint signatory issuer +
+ * holder) and exercises `CredentialFactory_UpdateCredentials` on it
+ * in the same atomic command list. The factory choice body archives
+ * the current credential and creates a sibling with the replacement
+ * claims map plus optional new `expiresAt`.
  *
- * `reason` is stamped onto the new sibling's meta under
+ * `reason` is stamped onto the factory result `meta` under
  * `canton-vc/update.reason` so the chain log preserves the update
- * event alongside its motivation. Empty reason is rejected at the
- * choice body, so callers MUST supply a non-empty string.
+ * event alongside its motivation.
+ *
+ * `actAs` carries both issuer and holder — both must be hosted on
+ * the submitting participant — matching the factory's joint
+ * signatory requirement.
  */
 export function buildUpdateCredentialsCommand(
   config: CantonConfig,
   input: UpdateCredentialsInput,
   commandId: CommandId,
 ): SubmitAndWaitRequestBody {
-  const contractId = validateContractId(input.contractId, 'updateCredentials');
+  // Validate the full update payload up-front so callers get a
+  // fast, local failure rather than discovering a bad input only
+  // after the factory-create round-trip lands on the ledger. These
+  // same fields are re-validated in the second leg
+  // (`buildCredentialFactoryUpdateExerciseCommand`) because the
+  // factory `Create` itself carries no claims / expiry / target id.
+  validateContractId(input.contractId, 'updateCredentials');
   const issuer = validateParty(input.issuerParty, 'issuerParty');
+  const holder = validateParty(input.holderParty, 'holderParty');
+  const admin = input.adminParty !== undefined
+    ? validateParty(input.adminParty, 'adminParty')
+    : issuer;
+  validateClaims(input.newClaims);
+  if (input.newExpiresAt !== undefined) {
+    validateIsoDateTime(input.newExpiresAt, 'newExpiresAt');
+  }
+  if (typeof input.reason !== 'string') {
+    throw new CantonError(
+      'invalid_command',
+      'updateCredentials: reason must be a string (empty allowed).',
+    );
+  }
+
+  // JSON Ledger API constraint: `CreateAndExerciseCommand` only
+  // addresses the template's own choices, not interface choices on
+  // the template's interface implementations. The CIP #204 factory
+  // pattern routes through an *interface* choice
+  // (`CredentialFactory_UpdateCredentials` on `Cip204.Factory.CredentialFactory`),
+  // so we issue the factory create as a standalone command — the
+  // smoke driver / `ledger.ts` orchestrator captures the resulting
+  // factory contract id and exercises the interface choice as a
+  // follow-up step. The factory carries no persistent state; the
+  // caller can archive it after the update lands or leave it for
+  // the next refresh.
+  return buildSubmissionEnvelope(
+    config,
+    commandId,
+    [issuer, holder],
+    [
+      {
+        CreateCommand: {
+          templateId: deriveCredentialFactoryTemplateId(config.packageName),
+          createArguments: { admin, issuer, holder },
+        },
+      },
+    ],
+    false,
+  );
+}
+
+/**
+ * Build the second leg of the factory-based update path: exercises
+ * `CredentialFactory_UpdateCredentials` on the interface, against
+ * the previously created factory contract id, with a single
+ * `CredentialUpdate` entry. The interface identifier is required in
+ * `templateId` here — per the JSON Ledger API spec, exercising a
+ * choice on an interface is signalled by passing the interface id
+ * in that field.
+ */
+export function buildCredentialFactoryUpdateExerciseCommand(
+  config: CantonConfig,
+  input: UpdateCredentialsInput & { readonly factoryContractId: ContractId },
+  commandId: CommandId,
+): SubmitAndWaitRequestBody {
+  const issuer = validateParty(input.issuerParty, 'issuerParty');
+  const holder = validateParty(input.holderParty, 'holderParty');
+  const credentialContractId = validateContractId(input.contractId, 'updateCredentials');
+  const factoryContractId = validateContractId(input.factoryContractId, 'factoryContractId');
   const newClaims = validateClaims(input.newClaims);
   const newExpiresAt =
     input.newExpiresAt !== undefined
       ? validateIsoDateTime(input.newExpiresAt, 'newExpiresAt')
       : null;
-  if (typeof input.reason !== 'string' || input.reason.length === 0) {
-    throw new CantonError(
-      'invalid_command',
-      'updateCredentials: reason must be a non-empty string.',
-    );
-  }
 
-  const exerciseCommand = {
-    ExerciseCommand: {
-      templateId: config.packageName,
-      contractId,
-      choice: 'UpdateCredentials',
-      choiceArgument: {
-        newClaims: claimsToWire(newClaims),
-        newExpiresAt,
-        reason: input.reason,
+  return buildSubmissionEnvelope(
+    config,
+    commandId,
+    [issuer, holder],
+    [
+      {
+        ExerciseCommand: {
+          templateId: deriveCip204FactoryInterfaceId(config.packageName),
+          contractId: factoryContractId,
+          choice: 'CredentialFactory_UpdateCredentials',
+          choiceArgument: {
+            updates: [
+              {
+                credentialId: credentialContractId,
+                newClaims: claimsToWire(newClaims),
+                newExpiresAt,
+              },
+            ],
+            meta: { 'canton-vc/update.reason': input.reason },
+          },
+        },
       },
-    },
-  };
-
-  return buildSubmissionEnvelope(config, commandId, [issuer], [exerciseCommand], false);
+    ],
+    false,
+  );
 }
 
 /* ---------- KycNFT (optional companion) ---------- */

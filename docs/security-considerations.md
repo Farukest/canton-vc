@@ -81,7 +81,7 @@ The window between webhook delivery and the next reconciliation pass bounds the 
 
 ### 1.5. Reference implementation
 
-The Crivacy.io production deployment runs the dual-channel verification + periodic reconciliation pattern against Canton mainnet. The exact worker is application-specific — it uses pg-boss for scheduling and PostgreSQL for state, which are choices outside the SDK's opinion — but the pattern itself is reproducible in any scheduler and storage layer. The `getDecision()` building block in `@canton-vc/kyc-provider` is the only SDK surface the worker needs to call.
+The dual-channel verification + periodic reconciliation pattern is reproducible in any scheduler and storage layer. The first production deployment running this pattern on Canton mainnet (documented under §M1 **Production reference** in the grant proposal) happens to use pg-boss for scheduling and PostgreSQL for worker state — those are application-level choices outside the SDK's opinion. The `getDecision()` building block in `@canton-vc/kyc-provider` is the only SDK surface a reconciler worker needs to call.
 
 ---
 
@@ -122,7 +122,7 @@ Adapters MUST compute the proof hash via the canonical `computeProofHash()` expo
 
 ### 2.5. Recommended pattern: stable `validator` label
 
-The validator label is carried in the credential's CIP #204 `claims : TextMap Text` slot under the issuer's reverse-DNS namespace (the Crivacy reference deployment uses `io.crivacy/validator = 'DiditValidator'`). New adapters SHOULD pick a stable, documented label that downstream verifiers can switch on; the on-chain template does not enforce a closed enum, so adding a new vendor is a label change rather than a DAR upgrade. Issuers SHOULD publish their namespace + accepted labels alongside the OAuth scope catalogue so verifiers know which strings to expect.
+The validator label is carried in the credential's CIP #204 `claims : TextMap Text` slot under the issuer's reverse-DNS namespace (e.g. `com.example/validator = 'DiditValidator'`). New adapters SHOULD pick a stable, documented label that downstream verifiers can switch on; the on-chain template does not enforce a closed enum, so adding a new vendor is a label change rather than a DAR upgrade. Issuers SHOULD publish their namespace + accepted labels alongside the OAuth scope catalogue so verifiers know which strings to expect.
 
 ---
 

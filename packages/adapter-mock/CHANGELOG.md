@@ -2,6 +2,14 @@
 
 All notable changes to `@canton-vc/adapter-mock` are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this package follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) with the 0.x caveat that minor bumps may carry breaking changes until 1.0.0.
 
+## [0.3.0] — 2026-05-29
+
+### Changed
+
+- Depends on `@canton-vc/kyc-provider ^0.3.0`. The synthetic `KycDecision` shape produced by the mock adapter is byte-identical to v0.2.0; it continues to serve `examples/issuer-demo` + `examples/verifier-demo` and the unit test suites without surface changes.
+
+[0.3.0]: https://github.com/Farukest/canton-vc/releases/tag/adapter-mock-v0.3.0
+
 ## [0.2.0] — 2026-05-28
 
 ### Changed

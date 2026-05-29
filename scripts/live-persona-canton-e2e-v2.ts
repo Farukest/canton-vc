@@ -546,6 +546,7 @@ async function main(): Promise<void> {
   const updateResult = await canton.updateCredentials({
     contractId: credD.contractId as ContractId,
     issuerParty: issuer,
+    holderParty: holder,
     newClaims: refreshedClaims,
     newExpiresAt: refreshedValidUntil.toISOString(),
     reason: 'e2e-v2-bulk-update-after-rereview',

@@ -2,6 +2,32 @@
 
 All notable changes to `@canton-vc/core` are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this package follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html) with the 0.x caveat that minor bumps may carry breaking changes until 1.0.0.
 
+## [0.3.0] — 2026-05-29
+
+### Added — CIP #204 optional factory pathway
+
+- **`buildCredentialFactoryUpdateExerciseCommand(config, input, commandId)`** — issues an `ExerciseCommand` targeting the CIP #204 `Cip204.Factory:CredentialFactory` interface id. Used as the second leg of the bulk-update orchestration: the first leg creates the implementer's joint-signatory `CredentialFactory` contract, the second leg runs `CredentialFactory_UpdateCredentials` on the interface against that contract id.
+- **`deriveCip204FactoryInterfaceId(packageName)`** — derives `<pkg>:Cip204.Factory:CredentialFactory` from a configured template package reference (both `#<name>:Module:Template` and `<lf-hash>:Module:Template` forms supported).
+- **`deriveCredentialFactoryTemplateId(packageName)`** — derives `<pkg>:Canton.VC.Credential:CredentialFactory` (the implementer template).
+- `'updfac'` added to the `newCommandId` purpose union so the factory-create leg's command id is distinguishable from the subsequent update exercise in audit logs.
+
+### Changed
+
+- **`UpdateCredentialsInput`** gained `holderParty: PartyId` (required) and `adminParty?: PartyId` (optional, defaults to issuer). The factory choice is joint-controlled (issuer + holder); the SDK passes both via `actAs` on each of the two legs.
+- **`updateCredentials()` orchestrator** rewritten as a two-step pipeline. Step 1 issues the factory `CreateCommand` and extracts the new contract id from the transaction events. Step 2 issues the `ExerciseCommand` on the CIP #204 factory interface id with a single-entry update list, extracting the new credential contract id from the second transaction's events. Each leg carries its own `op` context (`updateCredentials.createFactory` / `.exerciseFactory`) for trace clarity.
+- **`buildUpdateCredentialsCommand`** is now first-leg-only — it issues the factory `CreateCommand`. Up-front input validation (claims, expiresAt, target contract id, reason) is preserved so callers fast-fail locally before the first round-trip.
+
+### Why two steps
+
+The JSON Ledger API's `CreateAndExerciseCommand` only addresses template-level choices, not interface choices on the template's implementations. The CIP #204 factory pattern exercises a choice on `Cip204.Factory:CredentialFactory` — an interface — so the choice exercise cannot be folded into the create command and must be a separate `ExerciseCommand` carrying the interface id in `templateId`. A v0.3.0-pre attempt at the single-command shape was rejected by Canton mainnet with `INVALID_ARGUMENT: Invalid template:…:Canton.VC.Credential:CredentialFactory or choice:CredentialFactory_UpdateCredentials`; the two-step split is the spec-correct resolution.
+
+### Verified
+
+- **Sumsub + Persona mainnet e2e** (DAR v2.2.0, package id `16fb51c2e9703cef173c76babd755afca9c7a01e34fc947aebc12205fdf0f719`) — phase 16 `updateCredentials` exercised end-to-end via the two-step path; old credential D archived, new sibling created with refreshed claims map + `expiresAt`; `Credential_PublicFetch` over the new contract confirms the updated view.
+- 299/299 unit tests green (`vitest run`).
+
+[0.3.0]: https://github.com/Farukest/canton-vc/releases/tag/core-v0.3.0
+
 ## [0.2.0] — 2026-05-28
 
 ### BREAKING — Pure CIP #204 alignment

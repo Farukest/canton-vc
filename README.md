@@ -31,7 +31,7 @@ issuer, no ZK overlay, no extra audit surface.
 | [`@canton-vc/adapter-sumsub`](packages/adapter-sumsub) | [![npm](https://img.shields.io/npm/v/@canton-vc/adapter-sumsub?color=cb3837&label=)](https://www.npmjs.com/package/@canton-vc/adapter-sumsub) | Production adapter wrapping [Sumsub][sumsub] (applicants API + per-request HMAC signing + multi-algorithm webhook digest). |
 | [`@canton-vc/adapter-persona`](packages/adapter-persona) | [![npm](https://img.shields.io/npm/v/@canton-vc/adapter-persona?color=cb3837&label=)](https://www.npmjs.com/package/@canton-vc/adapter-persona) | Production adapter wrapping [Persona][persona] (JSON:API inquiry endpoints + Bearer auth + signed-timestamp `Persona-Signature` webhooks with key rotation). |
 | [`@canton-vc/adapter-mock`](packages/adapter-mock) | [![npm](https://img.shields.io/npm/v/@canton-vc/adapter-mock?color=cb3837&label=)](https://www.npmjs.com/package/@canton-vc/adapter-mock) | Deterministic adapter for tests and local dev — no network calls. |
-| [`daml/canton-vc-credential`](daml/canton-vc-credential) | DAR v2.1.0 | DAML templates implementing the CIP #204 `Cip204.Standard.Credential` interface (`Credential_PublicFetch`, `Credential_ArchiveAsHolder`) plus implementer extensions (`RevokeCredential` with cascade burn, `UpdateCredentials` for bulk claims refresh) and the optional `KycNFT` companion. |
+| [`daml/canton-vc-credential`](daml/canton-vc-credential) | DAR v2.2.0 | DAML templates implementing the CIP #204 `Cip204.Standard.Credential` interface (`Credential_PublicFetch`, `Credential_ArchiveAsHolder`) plus implementer extensions (`RevokeCredential` with cascade burn, `UpdateCredentials` for bulk claims refresh) and the optional `KycNFT` companion. |
 
 The Didit, Sumsub, and Persona adapters sit at three structurally distinct corners of the KYC-vendor design space: auth scheme (static API key vs per-request HMAC vs Bearer + version pin), identity model (sessions vs applicants vs inquiries), workflow vocabulary (workflow ids vs level names vs template ids), and webhook signature format (canonical-JSON HMAC vs multi-algorithm digest vs signed-timestamp HMAC with key rotation). All three fit behind the same `KycProvider` interface without changes to the issuer pipeline, so the interface is vendor-agnostic in practice, not just in design.
 
@@ -45,7 +45,7 @@ The Didit, Sumsub, and Persona adapters sit at three structurally distinct corne
 
 Three classes of Canton participants integrate canton-vc, each at a different surface of the SDK:
 
-**Identity-provider-style firms** (Crivacy.io is the first such deployment; new entrants are open to use the same primitives) integrate the issuer-side packages: `@canton-vc/core` for the Canton wire client, `@canton-vc/kyc-provider` plus one or more `@canton-vc/adapter-*` packages for KYC-vendor coverage, and the `Canton.VC.Credential` DAML templates from the canton-vc-credential DAR. These deployments mint credentials for their end users and expose the OAuth/OIDC userinfo endpoint that downstream verifiers point at.
+**Identity-provider-style firms** integrate the issuer-side packages: `@canton-vc/core` for the Canton wire client, `@canton-vc/kyc-provider` plus one or more `@canton-vc/adapter-*` packages for KYC-vendor coverage, and the `Canton.VC.Credential` DAML templates from the canton-vc-credential DAR. These deployments mint credentials for their end users and expose the OAuth/OIDC userinfo endpoint that downstream verifiers point at. The grant proposal's §M1 **Production reference** entry documents the first production deployment running this pattern on Canton mainnet (on-chain party id + validator links).
 
 **dApp / DeFi / NFT / lending verifiers** integrate the verifier-side primitives: the `verifyDisclosure()` helper from `@canton-vc/credential` and the OAuth client for fetching the disclosure blob from an issuer's userinfo endpoint. They accept credentials from any conforming canton-vc issuer with a single API call — no per-issuer integration code, no KYC partner contract on the verifier's side, and trustless verification anchored against the Canton sequencer's signature instead of the issuer's word.
 
@@ -66,7 +66,7 @@ Three classes of Canton participants integrate canton-vc, each at a different su
 - **Node.js 20+** for the TypeScript SDK and the runnable examples under [`examples/`](./examples).
 - **A Canton 3.4 participant** with the `canton-vc-credential` DAR uploaded — required for any real on-chain mint or verify. Not needed for the mock paths described under [Try it](#try-it) below.
 - **A KYC vendor sandbox account** (Didit, Sumsub, or Persona) — optional, only needed to drive the issuer pipeline against a real vendor.
-- **DAML 3.4 SDK** — optional, only needed to rebuild the DAR yourself. The pre-built DAR ships at [`daml/canton-vc-credential/.daml/dist/canton-vc-credential-2.1.0.dar`](./daml/canton-vc-credential/.daml/dist/canton-vc-credential-2.1.0.dar) (mainnet package id `562bbc757d5ec55fba320bf7370588b356811b3f2556817f49098de467758ea4`).
+- **DAML 3.4 SDK** — optional, only needed to rebuild the DAR yourself. The pre-built DAR ships at [`daml/canton-vc-credential/.daml/dist/canton-vc-credential-2.2.0.dar`](./daml/canton-vc-credential/.daml/dist/canton-vc-credential-2.2.0.dar) (mainnet package id `16fb51c2e9703cef173c76babd755afca9c7a01e34fc947aebc12205fdf0f719`).
 
 ---
 
@@ -180,8 +180,9 @@ const kyc = new DiditAdapter({
 const canton = new CantonClient({ config: loadCantonConfig() });
 
 // Pick your reverse-DNS claim namespace per CIP #204 §"Namespacing".
-// The example below uses `com.example`; the Crivacy reference
-// deployment uses `io.crivacy`.
+// The example below uses `com.example`; an implementer typically picks
+// a namespace that reverses their own deployment's primary domain
+// (e.g. `io.acme` for an issuer running at acme.io).
 const CLAIM_KEYS = createClaimSchema('com.example', [
   'userRef','level','status','proofHash','proofSchemaId','validator',
   'humanScore','identityVerified','livenessVerified','addressVerified',
@@ -277,7 +278,7 @@ This makes canton-vc a Canton-native alternative to ZK selective-disclosure for 
 
 `canton-vc` is the first production reference implementation of the [Canton Verifiable Credentials Standard (CIP #204)](https://github.com/canton-foundation/cips/pull/204). The on-chain `Canton.VC.Credential` template implements the `Cip204.Standard.Credential` interface verbatim — the two standard choices (`Credential_PublicFetch`, `Credential_ArchiveAsHolder`) ship unmodified, and the storage shape matches the CIP #204 view type (`admin / issuer / holder / claims : TextMap Text / createdAt / expiresAt / meta`). Implementer extensions (`RevokeCredential`, `UpdateCredentials`, `KycNFT` + `BurnNft`) live on the template itself, outside the interface surface, so any third-party verifier consuming the CIP #204 standard choice continues to work regardless of what extensions a given issuer adds.
 
-The SDK was built alongside CIP #204 through its review cycle and adopted the Pure standard surface as a single breaking step at DAR v2.0.0, with the bulk-update path shipping at v2.1.0 (`562bbc757d5ec55fba320bf7370588b356811b3f2556817f49098de467758ea4`). New issuers inherit a clean CIP #204 surface from day one; new community DAML implementations of the same interface interoperate at the chain boundary without touching this SDK.
+The SDK was built alongside CIP #204 through its review cycle and adopted the Pure standard surface as a single breaking step at DAR v2.0.0, with the bulk-update path shipping at v2.2.0 (`16fb51c2e9703cef173c76babd755afca9c7a01e34fc947aebc12205fdf0f719`). New issuers inherit a clean CIP #204 surface from day one; new community DAML implementations of the same interface interoperate at the chain boundary without touching this SDK.
 
 The on-chain `proofSchemaId` value carried in the credential's `claims` map references content-addressed schema specs in [`docs/proof-schemas/`](docs/proof-schemas/); regulators and auditors can replay any credential's `proofHash` deterministically from the firm's retained raw bytes using only the published schema + `@canton-vc/core#canonicalJson`.
 
